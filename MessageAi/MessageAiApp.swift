@@ -7,12 +7,17 @@
 
 import SwiftUI
 import SwiftData
+import FirebaseCore
 
 @main
 struct MessageAiApp: App {
+    @State private var authService = AuthService()
+
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            User.self,
+            Conversation.self,
+            Message.self
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
@@ -23,10 +28,38 @@ struct MessageAiApp: App {
         }
     }()
 
+    init() {
+        // Initialize Firebase
+        FirebaseApp.configure()
+    }
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootView()
+                .environment(authService)
         }
         .modelContainer(sharedModelContainer)
+    }
+}
+
+struct RootView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(AuthService.self) private var authService
+
+    var body: some View {
+        Group {
+            if authService.isAuthenticated {
+                ConversationListView(
+                    authService: authService,
+                    messageService: MessageService(
+                        modelContext: modelContext,
+                        authService: authService
+                    )
+                )
+            } else {
+                LoginView(authService: authService)
+            }
+        }
+        .animation(.easeInOut, value: authService.isAuthenticated)
     }
 }
