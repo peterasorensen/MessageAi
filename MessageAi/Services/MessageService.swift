@@ -34,6 +34,7 @@ class MessageService {
     // MARK: - Conversations
 
     func startListeningToConversations(userId: String) {
+        print("🔥 Starting conversation listener for user: \(userId)")
         conversationListener?.remove()
 
         conversationListener = db.collection("conversations")
@@ -43,21 +44,28 @@ class MessageService {
                 guard let self = self else { return }
 
                 if let error = error {
-                    print("Error listening to conversations: \(error.localizedDescription)")
+                    print("❌ Error listening to conversations: \(error.localizedDescription)")
                     return
                 }
 
-                guard let documents = snapshot?.documents else { return }
+                guard let documents = snapshot?.documents else {
+                    print("⚠️ No conversation documents")
+                    return
+                }
+
+                print("💬 Received \(documents.count) conversations from Firestore")
 
                 Task { @MainActor in
                     self.conversations = documents.compactMap { document in
                         if let dto = try? Firestore.Decoder().decode(ConversationDTO.self, from: document.data()) {
                             let conversation = dto.toConversation(currentUserId: userId)
                             self.saveToLocal(conversation: conversation)
+                            print("   📝 Conversation: \(conversation.id) with \(conversation.otherParticipantName(currentUserId: userId))")
                             return conversation
                         }
                         return nil
                     }
+                    print("   ✅ Total conversations loaded: \(self.conversations.count)")
                 }
             }
     }
@@ -86,20 +94,92 @@ class MessageService {
         return conversation
     }
 
+    func deleteConversation(conversationId: String) async throws {
+        guard let currentUserId = authService.currentUser?.id else {
+            throw NSError(domain: "MessageService", code: -1, userInfo: [NSLocalizedDescriptionKey: "No authenticated user"])
+        }
+
+        // Remove from Firestore
+        try await db.collection("conversations").document(conversationId).delete()
+
+        // Remove from local array
+        await MainActor.run {
+            conversations.removeAll { $0.id == conversationId }
+        }
+
+        // Remove message listener
+        messageListeners[conversationId]?.remove()
+        messageListeners.removeValue(forKey: conversationId)
+
+        // Remove messages from memory
+        await MainActor.run {
+            messages.removeValue(forKey: conversationId)
+        }
+
+        // Delete from local storage
+        let conversationPredicate = #Predicate<Conversation> { conversation in
+            conversation.id == conversationId
+        }
+        let conversationDescriptor = FetchDescriptor<Conversation>(predicate: conversationPredicate)
+        if let localConversations = try? modelContext.fetch(conversationDescriptor) {
+            localConversations.forEach { modelContext.delete($0) }
+        }
+
+        let messagePredicate = #Predicate<Message> { message in
+            message.conversationId == conversationId
+        }
+        let messageDescriptor = FetchDescriptor<Message>(predicate: messagePredicate)
+        if let localMessages = try? modelContext.fetch(messageDescriptor) {
+            localMessages.forEach { modelContext.delete($0) }
+        }
+
+        try? modelContext.save()
+    }
+
     func getOrCreateConversation(with userId: String, userName: String) async throws -> Conversation {
         guard let currentUserId = authService.currentUser?.id,
               let currentUserName = authService.currentUser?.displayName else {
             throw NSError(domain: "MessageService", code: -1, userInfo: [NSLocalizedDescriptionKey: "No authenticated user"])
         }
 
-        // Check if conversation already exists
+        // Check if conversation already exists locally
         if let existing = conversations.first(where: {
-            $0.conversationType == .oneOnOne && $0.participantIds.contains(userId) && $0.participantIds.contains(currentUserId)
+            $0.conversationType == .oneOnOne &&
+            $0.participantIds.sorted() == [currentUserId, userId].sorted()
         }) {
+            print("✅ Found existing conversation locally: \(existing.id)")
             return existing
         }
 
-        // Create new conversation
+        // Check Firestore for existing conversation
+        let snapshot = try await db.collection("conversations")
+            .whereField("participantIds", arrayContains: currentUserId)
+            .whereField("type", isEqualTo: ConversationType.oneOnOne.rawValue)
+            .getDocuments()
+
+        // Look for conversation with these exact two participants
+        for document in snapshot.documents {
+            if let dto = try? Firestore.Decoder().decode(ConversationDTO.self, from: document.data()) {
+                let participantSet = Set(dto.participantIds)
+                if participantSet == Set([currentUserId, userId]) {
+                    print("✅ Found existing conversation in Firestore: \(dto.id)")
+                    let conversation = dto.toConversation(currentUserId: currentUserId)
+
+                    // Add to local cache
+                    await MainActor.run {
+                        if !self.conversations.contains(where: { $0.id == conversation.id }) {
+                            self.conversations.append(conversation)
+                            self.saveToLocal(conversation: conversation)
+                        }
+                    }
+
+                    return conversation
+                }
+            }
+        }
+
+        // No existing conversation found, create new one
+        print("📝 Creating new conversation")
         let participantIds = [currentUserId, userId]
         let participantNames = [currentUserId: currentUserName, userId: userName]
 
@@ -109,6 +189,8 @@ class MessageService {
     // MARK: - Messages
 
     func startListeningToMessages(conversationId: String) {
+        print("🔥 Starting message listener for conversation: \(conversationId)")
+
         // Remove existing listener if any
         messageListeners[conversationId]?.remove()
 
@@ -120,16 +202,23 @@ class MessageService {
                 guard let self = self else { return }
 
                 if let error = error {
-                    print("Error listening to messages: \(error.localizedDescription)")
+                    print("❌ Error listening to messages: \(error.localizedDescription)")
                     return
                 }
 
-                guard let documents = snapshot?.documents else { return }
+                guard let documents = snapshot?.documents else {
+                    print("⚠️ No documents in snapshot")
+                    return
+                }
+
+                print("📨 Received \(documents.count) messages from Firestore")
 
                 Task { @MainActor in
                     // Get current messages including optimistic ones
                     let currentMessages = self.messages[conversationId] ?? []
                     let optimisticMessages = currentMessages.filter { $0.isOptimistic }
+
+                    print("   Current optimistic messages: \(optimisticMessages.count)")
 
                     // Parse Firestore messages
                     let firestoreMessages = documents.compactMap { document -> Message? in
@@ -141,13 +230,20 @@ class MessageService {
                         return nil
                     }
 
+                    print("   Parsed \(firestoreMessages.count) Firestore messages")
+
                     // Merge: Remove optimistic messages that now exist in Firestore
                     let firestoreMessageIds = Set(firestoreMessages.map { $0.id })
                     let remainingOptimistic = optimisticMessages.filter { !firestoreMessageIds.contains($0.id) }
 
+                    print("   Remaining optimistic: \(remainingOptimistic.count)")
+
                     // Combine and sort by timestamp
-                    self.messages[conversationId] = (firestoreMessages + remainingOptimistic)
+                    let combinedMessages = (firestoreMessages + remainingOptimistic)
                         .sorted { $0.timestamp < $1.timestamp }
+
+                    self.messages[conversationId] = combinedMessages
+                    print("   ✅ Total messages now: \(combinedMessages.count)")
 
                     // Mark messages as read
                     if let currentUserId = self.authService.currentUser?.id {
@@ -164,6 +260,8 @@ class MessageService {
               let currentUserName = authService.currentUser?.displayName else {
             throw NSError(domain: "MessageService", code: -1, userInfo: [NSLocalizedDescriptionKey: "No authenticated user"])
         }
+
+        print("📤 Sending message to conversation: \(conversationId)")
 
         // Create optimistic message
         let optimisticMessage = Message(
@@ -182,6 +280,7 @@ class MessageService {
                 self.messages[conversationId] = []
             }
             self.messages[conversationId]?.append(optimisticMessage)
+            print("   ✅ Added optimistic message locally")
         }
 
         do {
@@ -196,6 +295,8 @@ class MessageService {
                 .document(optimisticMessage.id)
                 .setData(data)
 
+            print("   ✅ Message saved to Firestore: \(optimisticMessage.id)")
+
             // Update conversation's last message
             let updates: [String: Any] = [
                 "lastMessage": content,
@@ -207,9 +308,13 @@ class MessageService {
                 .document(conversationId)
                 .updateData(updates)
 
+            print("   ✅ Conversation updated with last message")
+
             // Listener will automatically replace optimistic message with real one
 
         } catch {
+            print("   ❌ Failed to send message: \(error.localizedDescription)")
+
             // Mark message as failed
             await MainActor.run {
                 if let index = self.messages[conversationId]?.firstIndex(where: { $0.id == optimisticMessage.id }) {

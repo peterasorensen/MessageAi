@@ -12,6 +12,8 @@ struct ConversationListView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var showingNewChat = false
     @State private var searchText = ""
+    @State private var navigationPath = NavigationPath()
+    @State private var selectedConversation: Conversation?
 
     let authService: AuthService
     let messageService: MessageService
@@ -66,7 +68,21 @@ struct ConversationListView: View {
             }
             .searchable(text: $searchText, prompt: "Search conversations")
             .sheet(isPresented: $showingNewChat) {
-                NewChatView(authService: authService, messageService: messageService)
+                NewChatView(
+                    authService: authService,
+                    messageService: messageService,
+                    onConversationCreated: { conversation in
+                        selectedConversation = conversation
+                        showingNewChat = false
+                    }
+                )
+            }
+            .navigationDestination(item: $selectedConversation) { conversation in
+                ChatView(
+                    conversation: conversation,
+                    authService: authService,
+                    messageService: messageService
+                )
             }
         }
         .onAppear {
@@ -92,7 +108,7 @@ struct ConversationListView: View {
                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     Button(role: .destructive) {
-                        // Delete conversation
+                        deleteConversation(conversation)
                     } label: {
                         Label("Delete", systemImage: "trash")
                     }
@@ -139,6 +155,16 @@ struct ConversationListView: View {
             try authService.signOut()
         } catch {
             print("Error signing out: \(error.localizedDescription)")
+        }
+    }
+
+    private func deleteConversation(_ conversation: Conversation) {
+        Task {
+            do {
+                try await messageService.deleteConversation(conversationId: conversation.id)
+            } catch {
+                print("Error deleting conversation: \(error.localizedDescription)")
+            }
         }
     }
 }
@@ -243,6 +269,7 @@ struct NewChatView: View {
 
     let authService: AuthService
     let messageService: MessageService
+    let onConversationCreated: (Conversation) -> Void
 
     var body: some View {
         NavigationStack {
@@ -319,8 +346,11 @@ struct NewChatView: View {
     private func startConversation(with user: User) {
         Task {
             do {
-                _ = try await messageService.getOrCreateConversation(with: user.id, userName: user.displayName)
-                dismiss()
+                let conversation = try await messageService.getOrCreateConversation(with: user.id, userName: user.displayName)
+                await MainActor.run {
+                    onConversationCreated(conversation)
+                    dismiss()
+                }
             } catch {
                 print("Error creating conversation: \(error.localizedDescription)")
             }
