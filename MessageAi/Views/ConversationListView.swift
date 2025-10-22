@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct ConversationListView: View {
     @Environment(\.modelContext) private var modelContext
@@ -326,5 +327,5 @@ struct NewChatView: View {
 }
 
 #Preview {
-    ConversationListView(authService: AuthService(), messageService: MessageService(modelContext: ModelContext(ModelContainer(for: Conversation.self, Message.self, User.self)), authService: AuthService()))
+    ConversationListView(authService: AuthService(), messageService: MessageService(modelContext: ModelContext(try! ModelContainer(for: Conversation.self, Message.self, User.self)), authService: AuthService()))
 }

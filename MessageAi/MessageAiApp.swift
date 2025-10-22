@@ -11,7 +11,10 @@ import FirebaseCore
 
 @main
 struct MessageAiApp: App {
-    @State private var authService = AuthService()
+    init() {
+        // Configure Firebase BEFORE any @State properties are initialized
+        FirebaseApp.configure()
+    }
 
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
@@ -19,26 +22,46 @@ struct MessageAiApp: App {
             Conversation.self,
             Message.self
         ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+        let modelConfiguration = ModelConfiguration(
+            schema: schema,
+            isStoredInMemoryOnly: false,
+            allowsSave: true
+        )
 
         do {
             return try ModelContainer(for: schema, configurations: [modelConfiguration])
         } catch {
-            fatalError("Could not create ModelContainer: \(error)")
+            // If migration fails, delete the old store and create a fresh one
+            print("⚠️ ModelContainer creation failed, attempting to delete old store: \(error)")
+
+            // Delete old store
+            let url = modelConfiguration.url
+            try? FileManager.default.removeItem(at: url)
+            print("🗑️ Deleted old store at: \(url)")
+
+            // Try again with fresh store
+            do {
+                return try ModelContainer(for: schema, configurations: [modelConfiguration])
+            } catch {
+                fatalError("Could not create ModelContainer even after deleting old store: \(error)")
+            }
         }
     }()
 
-    init() {
-        // Initialize Firebase
-        FirebaseApp.configure()
-    }
-
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .environment(authService)
+            ContentView()
         }
         .modelContainer(sharedModelContainer)
+    }
+}
+
+struct ContentView: View {
+    @State private var authService = AuthService()
+
+    var body: some View {
+        RootView()
+            .environment(authService)
     }
 }
 
