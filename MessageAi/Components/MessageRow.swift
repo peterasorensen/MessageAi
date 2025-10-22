@@ -79,14 +79,17 @@ struct MessageRow: View {
                 Image(systemName: "clock.fill")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
+                    .symbolEffect(.pulse, options: .repeating)
             } else if message.messageStatus == .failed {
                 Image(systemName: "exclamationmark.circle.fill")
                     .font(.system(size: 12))
                     .foregroundStyle(.red)
+                    .symbolEffect(.bounce, value: message.messageStatus)
             } else if message.messageStatus == .sent {
                 Image(systemName: "checkmark")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.secondary)
+                    .transition(.scale.combined(with: .opacity))
             } else if message.messageStatus == .delivered {
                 HStack(spacing: -3) {
                     Image(systemName: "checkmark")
@@ -94,6 +97,7 @@ struct MessageRow: View {
                 }
                 .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(.secondary)
+                .transition(.scale.combined(with: .opacity))
             } else if message.messageStatus == .read || isRead {
                 HStack(spacing: -3) {
                     Image(systemName: "checkmark")
@@ -101,9 +105,12 @@ struct MessageRow: View {
                 }
                 .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(.blue)
+                .transition(.scale.combined(with: .opacity))
             }
         }
         .frame(width: 16)
+        .animation(.easeInOut(duration: 0.2), value: message.messageStatus)
+        .animation(.easeInOut(duration: 0.2), value: isRead)
     }
 
     private func formatTimestamp(_ date: Date) -> String {

@@ -127,7 +127,12 @@ class MessageService {
                 guard let documents = snapshot?.documents else { return }
 
                 Task { @MainActor in
-                    self.messages[conversationId] = documents.compactMap { document in
+                    // Get current messages including optimistic ones
+                    let currentMessages = self.messages[conversationId] ?? []
+                    let optimisticMessages = currentMessages.filter { $0.isOptimistic }
+
+                    // Parse Firestore messages
+                    let firestoreMessages = documents.compactMap { document -> Message? in
                         if let dto = try? Firestore.Decoder().decode(MessageDTO.self, from: document.data()) {
                             let message = dto.toMessage()
                             self.saveToLocal(message: message)
@@ -135,6 +140,14 @@ class MessageService {
                         }
                         return nil
                     }
+
+                    // Merge: Remove optimistic messages that now exist in Firestore
+                    let firestoreMessageIds = Set(firestoreMessages.map { $0.id })
+                    let remainingOptimistic = optimisticMessages.filter { !firestoreMessageIds.contains($0.id) }
+
+                    // Combine and sort by timestamp
+                    self.messages[conversationId] = (firestoreMessages + remainingOptimistic)
+                        .sorted { $0.timestamp < $1.timestamp }
 
                     // Mark messages as read
                     if let currentUserId = self.authService.currentUser?.id {
@@ -163,6 +176,7 @@ class MessageService {
             isOptimistic: true
         )
 
+        // Show optimistic message immediately
         await MainActor.run {
             if self.messages[conversationId] == nil {
                 self.messages[conversationId] = []
@@ -193,12 +207,8 @@ class MessageService {
                 .document(conversationId)
                 .updateData(updates)
 
-            // Remove optimistic message and let the listener update
-            await MainActor.run {
-                if let index = self.messages[conversationId]?.firstIndex(where: { $0.id == optimisticMessage.id }) {
-                    self.messages[conversationId]?.remove(at: index)
-                }
-            }
+            // Listener will automatically replace optimistic message with real one
+
         } catch {
             // Mark message as failed
             await MainActor.run {

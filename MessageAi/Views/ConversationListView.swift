@@ -97,9 +97,11 @@ struct ConversationListView: View {
                         Label("Delete", systemImage: "trash")
                     }
                 }
+                .transition(.opacity.combined(with: .move(edge: .trailing)))
             }
         }
         .listStyle(.plain)
+        .animation(.easeInOut(duration: 0.2), value: filteredConversations.count)
     }
 
     private var emptyStateView: some View {

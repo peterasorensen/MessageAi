@@ -68,21 +68,28 @@ struct ContentView: View {
 struct RootView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(AuthService.self) private var authService
+    @State private var messageService: MessageService?
 
     var body: some View {
         Group {
             if authService.isAuthenticated {
-                ConversationListView(
-                    authService: authService,
-                    messageService: MessageService(
-                        modelContext: modelContext,
-                        authService: authService
+                if let messageService = messageService {
+                    ConversationListView(
+                        authService: authService,
+                        messageService: messageService
                     )
-                )
+                    .transition(.opacity)
+                }
             } else {
                 LoginView(authService: authService)
+                    .transition(.opacity)
             }
         }
-        .animation(.easeInOut, value: authService.isAuthenticated)
+        .animation(.easeInOut(duration: 0.3), value: authService.isAuthenticated)
+        .onAppear {
+            if messageService == nil {
+                messageService = MessageService(modelContext: modelContext, authService: authService)
+            }
+        }
     }
 }

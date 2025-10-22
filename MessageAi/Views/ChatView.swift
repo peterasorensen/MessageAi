@@ -40,15 +40,21 @@ struct ChatView: View {
                                 isRead: message.readBy.contains(currentUserId)
                             )
                             .id(message.id)
+                            .transition(.asymmetric(
+                                insertion: .scale(scale: 0.8).combined(with: .opacity),
+                                removal: .opacity
+                            ))
                         }
 
                         // Typing indicator
                         if !conversation.isTyping.isEmpty {
                             typingIndicator
                                 .id("typing")
+                                .transition(.scale.combined(with: .opacity))
                         }
                     }
                     .padding(.top, 8)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: messages.count)
                 }
                 .onAppear {
                     scrollProxy = proxy
