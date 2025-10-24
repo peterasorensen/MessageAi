@@ -33,6 +33,7 @@ final class Message {
     var status: String // MessageStatus raw value
     var timestamp: Date
     var readBy: [String] // Array of user IDs who have read this message
+    var deliveredToUsers: [String] // Array of user IDs who have received message locally
     var isOptimistic: Bool // For optimistic UI updates
 
     init(
@@ -45,6 +46,7 @@ final class Message {
         status: MessageStatus = .sending,
         timestamp: Date = Date(),
         readBy: [String] = [],
+        deliveredToUsers: [String] = [],
         isOptimistic: Bool = false
     ) {
         self.id = id
@@ -56,6 +58,7 @@ final class Message {
         self.status = status.rawValue
         self.timestamp = timestamp
         self.readBy = readBy
+        self.deliveredToUsers = deliveredToUsers
         self.isOptimistic = isOptimistic
     }
 
@@ -79,6 +82,7 @@ struct MessageDTO: Codable {
     let status: String
     let timestamp: Date
     let readBy: [String]
+    let deliveredToUsers: [String]
 
     init(from message: Message) {
         self.id = message.id
@@ -90,6 +94,7 @@ struct MessageDTO: Codable {
         self.status = message.status
         self.timestamp = message.timestamp
         self.readBy = message.readBy
+        self.deliveredToUsers = message.deliveredToUsers
     }
 
     func toMessage() -> Message {
@@ -103,6 +108,7 @@ struct MessageDTO: Codable {
             status: MessageStatus(rawValue: status) ?? .sent,
             timestamp: timestamp,
             readBy: readBy,
+            deliveredToUsers: deliveredToUsers,
             isOptimistic: false
         )
     }

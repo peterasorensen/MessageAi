@@ -95,28 +95,22 @@ class MessageService {
     }
 
     func deleteConversation(conversationId: String) async throws {
-        guard let currentUserId = authService.currentUser?.id else {
-            throw NSError(domain: "MessageService", code: -1, userInfo: [NSLocalizedDescriptionKey: "No authenticated user"])
-        }
+        // Local-only deletion (like iMessage)
+        // Does NOT delete from Firestore (other user still sees conversation)
 
-        // Remove from Firestore
-        try await db.collection("conversations").document(conversationId).delete()
-
-        // Remove from local array
-        await MainActor.run {
-            conversations.removeAll { $0.id == conversationId }
-        }
+        print("🗑️ Deleting conversation locally: \(conversationId)")
 
         // Remove message listener
         messageListeners[conversationId]?.remove()
         messageListeners.removeValue(forKey: conversationId)
 
-        // Remove messages from memory
+        // Remove from local memory
         await MainActor.run {
+            conversations.removeAll { $0.id == conversationId }
             messages.removeValue(forKey: conversationId)
         }
 
-        // Delete from local storage
+        // Delete from local storage (SwiftData)
         let conversationPredicate = #Predicate<Conversation> { conversation in
             conversation.id == conversationId
         }
@@ -134,6 +128,7 @@ class MessageService {
         }
 
         try? modelContext.save()
+        print("   ✅ Conversation deleted from local device only")
     }
 
     func getOrCreateConversation(with userId: String, userName: String) async throws -> Conversation {
@@ -189,11 +184,26 @@ class MessageService {
     // MARK: - Messages
 
     func startListeningToMessages(conversationId: String) {
+        guard let currentUserId = authService.currentUser?.id else { return }
+
         print("🔥 Starting message listener for conversation: \(conversationId)")
+
+        // Load all messages from SwiftData first (instant display)
+        let localMessages = loadLocalMessages(conversationId: conversationId)
+        Task { @MainActor in
+            self.messages[conversationId] = localMessages
+            print("📱 Loaded \(localMessages.count) messages from local storage")
+        }
+
+        // Get latest message timestamp from local storage
+        // Use Date(timeIntervalSince1970: 0) instead of Date.distantPast to avoid Firestore timestamp errors
+        let latestTimestamp = localMessages.max(by: { $0.timestamp < $1.timestamp })?.timestamp ?? Date(timeIntervalSince1970: 0)
 
         // Remove existing listener if any
         messageListeners[conversationId]?.remove()
 
+        // Listen to ALL messages for this conversation (to get delivery/read updates)
+        // Note: We're listening to all messages, not just new ones, to catch deliveredToUsers and readBy updates
         messageListeners[conversationId] = db.collection("conversations")
             .document(conversationId)
             .collection("messages")
@@ -206,50 +216,51 @@ class MessageService {
                     return
                 }
 
-                guard let documents = snapshot?.documents else {
-                    print("⚠️ No documents in snapshot")
-                    return
-                }
+                guard let documents = snapshot?.documents else { return }
 
                 print("📨 Received \(documents.count) messages from Firestore")
 
                 Task { @MainActor in
-                    // Get current messages including optimistic ones
-                    let currentMessages = self.messages[conversationId] ?? []
-                    let optimisticMessages = currentMessages.filter { $0.isOptimistic }
-
-                    print("   Current optimistic messages: \(optimisticMessages.count)")
-
-                    // Parse Firestore messages
-                    let firestoreMessages = documents.compactMap { document -> Message? in
+                    for document in documents {
                         if let dto = try? Firestore.Decoder().decode(MessageDTO.self, from: document.data()) {
                             let message = dto.toMessage()
+
+                            // Update existing message or add new one
+                            if self.messages[conversationId] == nil {
+                                self.messages[conversationId] = []
+                            }
+
+                            if let index = self.messages[conversationId]!.firstIndex(where: { $0.id == message.id }) {
+                                // Update existing message (for delivery/read updates)
+                                self.messages[conversationId]![index].deliveredToUsers = message.deliveredToUsers
+                                self.messages[conversationId]![index].readBy = message.readBy
+                                self.messages[conversationId]![index].status = message.status
+                                print("   🔄 Updated message: \(message.id)")
+                            } else {
+                                // New message - add it
+                                self.messages[conversationId]!.append(message)
+                                self.messages[conversationId]!.sort { $0.timestamp < $1.timestamp }
+                                print("   ➕ Added message: \(message.id)")
+
+                                // Mark as delivered to this user (for new messages only)
+                                Task {
+                                    try? await self.markMessageDelivered(
+                                        conversationId: conversationId,
+                                        messageId: message.id,
+                                        userId: currentUserId,
+                                        participantIds: self.conversations.first(where: { $0.id == conversationId })?.participantIds ?? []
+                                    )
+                                }
+                            }
+
+                            // Always save to local storage (updates included)
                             self.saveToLocal(message: message)
-                            return message
                         }
-                        return nil
                     }
 
-                    print("   Parsed \(firestoreMessages.count) Firestore messages")
-
-                    // Merge: Remove optimistic messages that now exist in Firestore
-                    let firestoreMessageIds = Set(firestoreMessages.map { $0.id })
-                    let remainingOptimistic = optimisticMessages.filter { !firestoreMessageIds.contains($0.id) }
-
-                    print("   Remaining optimistic: \(remainingOptimistic.count)")
-
-                    // Combine and sort by timestamp
-                    let combinedMessages = (firestoreMessages + remainingOptimistic)
-                        .sorted { $0.timestamp < $1.timestamp }
-
-                    self.messages[conversationId] = combinedMessages
-                    print("   ✅ Total messages now: \(combinedMessages.count)")
-
                     // Mark messages as read
-                    if let currentUserId = self.authService.currentUser?.id {
-                        Task {
-                            try? await self.markMessagesAsRead(conversationId: conversationId, userId: currentUserId)
-                        }
+                    Task {
+                        try? await self.markMessagesAsRead(conversationId: conversationId, userId: currentUserId)
                     }
                 }
             }
@@ -271,15 +282,17 @@ class MessageService {
             content: content,
             type: type,
             status: .sending,
+            deliveredToUsers: [currentUserId], // Sender has it immediately
             isOptimistic: true
         )
 
-        // Show optimistic message immediately
+        // Show optimistic message immediately & save to local storage
         await MainActor.run {
             if self.messages[conversationId] == nil {
                 self.messages[conversationId] = []
             }
             self.messages[conversationId]?.append(optimisticMessage)
+            self.saveToLocal(message: optimisticMessage)
             print("   ✅ Added optimistic message locally")
         }
 
@@ -288,6 +301,7 @@ class MessageService {
             let messageDTO = MessageDTO(from: optimisticMessage)
             var data = try Firestore.Encoder().encode(messageDTO)
             data["status"] = MessageStatus.sent.rawValue // Update status to sent
+            data["deliveredToUsers"] = [currentUserId] // Sender has it
 
             try await db.collection("conversations")
                 .document(conversationId)
@@ -322,6 +336,50 @@ class MessageService {
                 }
             }
             throw error
+        }
+    }
+
+    // MARK: - Delivery Tracking & Cleanup
+
+    func markMessageDelivered(conversationId: String, messageId: String, userId: String, participantIds: [String]) async throws {
+        let messageRef = db.collection("conversations")
+            .document(conversationId)
+            .collection("messages")
+            .document(messageId)
+
+        // Add current user to deliveredToUsers
+        try await messageRef.updateData(["deliveredToUsers": FieldValue.arrayUnion([userId])])
+
+        print("   📥 Marked message \(messageId) as delivered to \(userId)")
+
+        // Check if all participants have received the message
+        try await cleanupDeliveredMessage(
+            conversationId: conversationId,
+            messageId: messageId,
+            participantIds: participantIds
+        )
+    }
+
+    private func cleanupDeliveredMessage(conversationId: String, messageId: String, participantIds: [String]) async throws {
+        let messageRef = db.collection("conversations")
+            .document(conversationId)
+            .collection("messages")
+            .document(messageId)
+
+        // Fetch current message to check delivery status
+        let document = try await messageRef.getDocument()
+        guard let data = document.data(),
+              let deliveredToUsers = data["deliveredToUsers"] as? [String] else {
+            return
+        }
+
+        // If all participants have received the message, delete from Firestore
+        let deliveredSet = Set(deliveredToUsers)
+        let participantSet = Set(participantIds)
+
+        if deliveredSet == participantSet {
+            try await messageRef.delete()
+            print("   🗑️ Deleted message \(messageId) from Firestore (all users delivered)")
         }
     }
 

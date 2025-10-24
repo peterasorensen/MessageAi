@@ -12,6 +12,29 @@ struct MessageRow: View {
     let isFromCurrentUser: Bool
     let showSenderName: Bool
     let isRead: Bool
+    let totalParticipants: Int
+
+    private var actualStatus: MessageStatus {
+        // For optimistic messages, use their status
+        if message.isOptimistic {
+            return message.messageStatus
+        }
+
+        // Check read status first
+        if !message.readBy.isEmpty {
+            return .read
+        }
+
+        // Check delivery status
+        let deliveredCount = message.deliveredToUsers.count
+        if deliveredCount >= totalParticipants {
+            return .delivered
+        } else if deliveredCount > 0 {
+            return .sent
+        }
+
+        return message.messageStatus
+    }
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
@@ -75,22 +98,22 @@ struct MessageRow: View {
 
     private var messageStatusIndicator: some View {
         Group {
-            if message.messageStatus == .sending {
+            if actualStatus == .sending {
                 Image(systemName: "clock.fill")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .symbolEffect(.pulse, options: .repeating)
-            } else if message.messageStatus == .failed {
+            } else if actualStatus == .failed {
                 Image(systemName: "exclamationmark.circle.fill")
                     .font(.system(size: 12))
                     .foregroundStyle(.red)
-                    .symbolEffect(.bounce, value: message.messageStatus)
-            } else if message.messageStatus == .sent {
+                    .symbolEffect(.bounce, value: actualStatus)
+            } else if actualStatus == .sent {
                 Image(systemName: "checkmark")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.secondary)
                     .transition(.scale.combined(with: .opacity))
-            } else if message.messageStatus == .delivered {
+            } else if actualStatus == .delivered {
                 HStack(spacing: -3) {
                     Image(systemName: "checkmark")
                     Image(systemName: "checkmark")
@@ -98,7 +121,7 @@ struct MessageRow: View {
                 .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(.secondary)
                 .transition(.scale.combined(with: .opacity))
-            } else if message.messageStatus == .read || isRead {
+            } else if actualStatus == .read {
                 HStack(spacing: -3) {
                     Image(systemName: "checkmark")
                     Image(systemName: "checkmark")
@@ -109,8 +132,9 @@ struct MessageRow: View {
             }
         }
         .frame(width: 16)
-        .animation(.easeInOut(duration: 0.2), value: message.messageStatus)
-        .animation(.easeInOut(duration: 0.2), value: isRead)
+        .animation(.easeInOut(duration: 0.2), value: actualStatus)
+        .animation(.easeInOut(duration: 0.2), value: message.deliveredToUsers.count)
+        .animation(.easeInOut(duration: 0.2), value: message.readBy.count)
     }
 
     private func formatTimestamp(_ date: Date) -> String {
@@ -139,7 +163,8 @@ struct MessageRow: View {
             ),
             isFromCurrentUser: false,
             showSenderName: false,
-            isRead: false
+            isRead: false,
+            totalParticipants: 2
         )
 
         MessageRow(
@@ -152,7 +177,8 @@ struct MessageRow: View {
             ),
             isFromCurrentUser: true,
             showSenderName: false,
-            isRead: true
+            isRead: true,
+            totalParticipants: 2
         )
     }
     .padding()

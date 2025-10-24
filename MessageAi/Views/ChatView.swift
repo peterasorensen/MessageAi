@@ -37,7 +37,8 @@ struct ChatView: View {
                                 message: message,
                                 isFromCurrentUser: message.senderId == currentUserId,
                                 showSenderName: conversation.conversationType == .group,
-                                isRead: message.readBy.contains(currentUserId)
+                                isRead: message.readBy.contains(currentUserId),
+                                totalParticipants: conversation.participantIds.count
                             )
                             .id(message.id)
                             .transition(.asymmetric(
