@@ -18,6 +18,7 @@ final class User {
     var isOnline: Bool
     var lastSeen: Date
     var createdAt: Date
+    var fcmToken: String? // Firebase Cloud Messaging token for push notifications
 
     init(
         id: String,
@@ -27,7 +28,8 @@ final class User {
         avatarURL: String? = nil,
         isOnline: Bool = false,
         lastSeen: Date = Date(),
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        fcmToken: String? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -37,6 +39,7 @@ final class User {
         self.isOnline = isOnline
         self.lastSeen = lastSeen
         self.createdAt = createdAt
+        self.fcmToken = fcmToken
     }
 }
 
@@ -50,6 +53,7 @@ struct UserDTO: Codable {
     let isOnline: Bool
     let lastSeen: Date
     let createdAt: Date
+    let fcmToken: String?
 
     init(from user: User) {
         self.id = user.id
@@ -60,6 +64,7 @@ struct UserDTO: Codable {
         self.isOnline = user.isOnline
         self.lastSeen = user.lastSeen
         self.createdAt = user.createdAt
+        self.fcmToken = user.fcmToken
     }
 
     func toUser() -> User {
@@ -71,7 +76,8 @@ struct UserDTO: Codable {
             avatarURL: avatarURL,
             isOnline: isOnline,
             lastSeen: lastSeen,
-            createdAt: createdAt
+            createdAt: createdAt,
+            fcmToken: fcmToken
         )
     }
 }

@@ -7,6 +7,7 @@
 
 import Foundation
 import FirebaseFirestore
+import FirebaseFunctions
 import SwiftData
 
 @Observable
@@ -14,21 +15,34 @@ class MessageService {
     var conversations: [Conversation] = []
     var messages: [String: [Message]] = [:] // conversationId -> messages
     var activeConversationId: String?
+    var onlineUsers: [String: Bool] = [:] // userId -> isOnline
 
     private let db = Firestore.firestore()
+    private let functions = Functions.functions()
     private var conversationListener: ListenerRegistration?
     private var messageListeners: [String: ListenerRegistration] = [:]
+    private var userPresenceListeners: [String: ListenerRegistration] = [:]
     private let modelContext: ModelContext
     private let authService: AuthService
 
     init(modelContext: ModelContext, authService: AuthService) {
         self.modelContext = modelContext
         self.authService = authService
+
+        // Listen for background message delivery notifications
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleBackgroundDelivery),
+            name: NSNotification.Name("MarkMessageDelivered"),
+            object: nil
+        )
     }
 
     deinit {
         conversationListener?.remove()
         messageListeners.values.forEach { $0.remove() }
+        userPresenceListeners.values.forEach { $0.remove() }
+        NotificationCenter.default.removeObserver(self)
     }
 
     // MARK: - Conversations
@@ -58,6 +72,12 @@ class MessageService {
                 Task { @MainActor in
                     self.conversations = documents.compactMap { document in
                         if let dto = try? Firestore.Decoder().decode(ConversationDTO.self, from: document.data()) {
+                            // Filter out conversations deleted by current user
+                            if dto.deletedBy.contains(userId) {
+                                print("   🗑️ Skipping deleted conversation: \(dto.id)")
+                                return nil
+                            }
+
                             let conversation = dto.toConversation(currentUserId: userId)
                             self.saveToLocal(conversation: conversation)
                             print("   📝 Conversation: \(conversation.id) with \(conversation.otherParticipantName(currentUserId: userId))")
@@ -94,11 +114,88 @@ class MessageService {
         return conversation
     }
 
-    func deleteConversation(conversationId: String) async throws {
-        // Local-only deletion (like iMessage)
-        // Does NOT delete from Firestore (other user still sees conversation)
+    func updateGroupInfo(conversationId: String, groupName: String?, groupAvatarURL: String?) async throws {
+        var updates: [String: Any] = [:]
 
-        print("🗑️ Deleting conversation locally: \(conversationId)")
+        if let groupName = groupName {
+            updates["groupName"] = groupName
+        }
+
+        if let groupAvatarURL = groupAvatarURL {
+            updates["groupAvatarURL"] = groupAvatarURL
+        }
+
+        guard !updates.isEmpty else { return }
+
+        try await db.collection("conversations")
+            .document(conversationId)
+            .updateData(updates)
+
+        print("✅ Group info updated")
+
+        // Update local conversation
+        await MainActor.run {
+            if let index = conversations.firstIndex(where: { $0.id == conversationId }) {
+                if let groupName = groupName {
+                    conversations[index].groupName = groupName
+                }
+                if let groupAvatarURL = groupAvatarURL {
+                    conversations[index].groupAvatarURL = groupAvatarURL
+                }
+                saveToLocal(conversation: conversations[index])
+            }
+        }
+    }
+
+    func addGroupMembers(conversationId: String, userIds: [String]) async throws {
+        guard !userIds.isEmpty else { return }
+
+        print("➕ Adding \(userIds.count) members to group: \(conversationId)")
+
+        // Fetch user names for the new members
+        var newMemberNames: [String: String] = [:]
+        for userId in userIds {
+            if let user = try? await authService.fetchUser(by: userId) {
+                newMemberNames[userId] = user.displayName
+            }
+        }
+
+        // Update Firestore
+        try await db.collection("conversations")
+            .document(conversationId)
+            .updateData([
+                "participantIds": FieldValue.arrayUnion(userIds),
+                "participantNames": newMemberNames
+            ])
+
+        print("   ✅ Members added to Firestore")
+
+        // Update local conversation
+        await MainActor.run {
+            if let index = conversations.firstIndex(where: { $0.id == conversationId }) {
+                conversations[index].participantIds.append(contentsOf: userIds)
+                conversations[index].participantNames.merge(newMemberNames) { _, new in new }
+                saveToLocal(conversation: conversations[index])
+                print("   ✅ Local conversation updated")
+            }
+        }
+    }
+
+    func deleteConversation(conversationId: String) async throws {
+        guard let currentUserId = authService.currentUser?.id else {
+            throw NSError(domain: "MessageService", code: -1, userInfo: [NSLocalizedDescriptionKey: "No authenticated user"])
+        }
+
+        print("🗑️ Marking conversation as deleted for user: \(conversationId)")
+
+        // Mark conversation as deleted in Firestore (add user to deletedBy array)
+        try await db.collection("conversations")
+            .document(conversationId)
+            .updateData([
+                "deletedBy": FieldValue.arrayUnion([currentUserId])
+            ])
+
+        print("   ✅ Marked as deleted in Firestore")
 
         // Remove message listener
         messageListeners[conversationId]?.remove()
@@ -128,7 +225,7 @@ class MessageService {
         }
 
         try? modelContext.save()
-        print("   ✅ Conversation deleted from local device only")
+        print("   ✅ Conversation deleted from local storage")
     }
 
     func getOrCreateConversation(with userId: String, userName: String) async throws -> Conversation {
@@ -158,6 +255,17 @@ class MessageService {
                 let participantSet = Set(dto.participantIds)
                 if participantSet == Set([currentUserId, userId]) {
                     print("✅ Found existing conversation in Firestore: \(dto.id)")
+
+                    // If user previously deleted this conversation, restore it by removing from deletedBy
+                    if dto.deletedBy.contains(currentUserId) {
+                        print("   🔄 Restoring previously deleted conversation")
+                        try await db.collection("conversations")
+                            .document(dto.id)
+                            .updateData([
+                                "deletedBy": FieldValue.arrayRemove([currentUserId])
+                            ])
+                    }
+
                     let conversation = dto.toConversation(currentUserId: currentUserId)
 
                     // Add to local cache
@@ -329,6 +437,33 @@ class MessageService {
 
             print("   ✅ Conversation updated with last message")
 
+            // Send push notification to other participants via Cloud Function
+            let recipientIds = conversation?.participantIds.filter { $0 != currentUserId } ?? []
+            if !recipientIds.isEmpty {
+                // Call the Cloud Function to send notifications
+                let notificationData: [String: Any] = [
+                    "recipientIds": recipientIds,
+                    "title": currentUserName,
+                    "body": content,
+                    "conversationId": conversationId,
+                    "messageId": optimisticMessage.id
+                ]
+
+                Task {
+                    do {
+                        let result = try await functions.httpsCallable("sendNotificationHTTP").call(notificationData)
+                        if let response = result.data as? [String: Any],
+                           let success = response["success"] as? Bool,
+                           success {
+                            print("   ✅ Push notifications sent successfully")
+                        }
+                    } catch {
+                        print("   ⚠️ Failed to send push notification: \(error.localizedDescription)")
+                        print("   💡 Make sure Cloud Functions are deployed: firebase deploy --only functions")
+                    }
+                }
+            }
+
             // Listener will automatically replace optimistic message with real one
 
         } catch {
@@ -447,15 +582,84 @@ class MessageService {
         }
     }
 
+    // MARK: - Background Delivery Handler
+
+    @objc private func handleBackgroundDelivery(notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let conversationId = userInfo["conversationId"] as? String,
+              let messageId = userInfo["messageId"] as? String,
+              let currentUserId = authService.currentUser?.id else {
+            return
+        }
+
+        print("📥 Background delivery handler called for message: \(messageId)")
+
+        // Get conversation to access participant IDs
+        guard let conversation = conversations.first(where: { $0.id == conversationId }) else {
+            print("⚠️ Conversation not found for background delivery")
+            return
+        }
+
+        // Mark message as delivered in Firestore
+        Task {
+            try? await markMessageDelivered(
+                conversationId: conversationId,
+                messageId: messageId,
+                userId: currentUserId,
+                participantIds: conversation.participantIds
+            )
+        }
+    }
+
     // MARK: - Local Storage
 
     private func saveToLocal(conversation: Conversation) {
-        modelContext.insert(conversation)
+        // Check if conversation already exists in SwiftData
+        let conversationId = conversation.id
+        let predicate = #Predicate<Conversation> { existingConversation in
+            existingConversation.id == conversationId
+        }
+        let descriptor = FetchDescriptor<Conversation>(predicate: predicate)
+
+        if let existingConversations = try? modelContext.fetch(descriptor),
+           let existingConversation = existingConversations.first {
+            // Update existing conversation instead of inserting
+            existingConversation.lastMessage = conversation.lastMessage
+            existingConversation.lastMessageTimestamp = conversation.lastMessageTimestamp
+            existingConversation.lastMessageSenderId = conversation.lastMessageSenderId
+            existingConversation.unreadCount = conversation.unreadCount
+            existingConversation.isTyping = conversation.isTyping
+            existingConversation.deletedBy = conversation.deletedBy
+            existingConversation.participantNames = conversation.participantNames
+        } else {
+            // Insert new conversation
+            modelContext.insert(conversation)
+        }
+
         try? modelContext.save()
     }
 
     private func saveToLocal(message: Message) {
-        modelContext.insert(message)
+        // Check if message already exists in SwiftData
+        let messageId = message.id
+        let predicate = #Predicate<Message> { existingMessage in
+            existingMessage.id == messageId
+        }
+        let descriptor = FetchDescriptor<Message>(predicate: predicate)
+
+        if let existingMessages = try? modelContext.fetch(descriptor),
+           let existingMessage = existingMessages.first {
+            // Update existing message instead of inserting
+            existingMessage.content = message.content
+            existingMessage.status = message.status
+            existingMessage.readBy = message.readBy
+            existingMessage.deliveredToUsers = message.deliveredToUsers
+            existingMessage.isOptimistic = false // No longer optimistic once saved
+        } else {
+            // Insert new message
+            modelContext.insert(message)
+        }
+
         try? modelContext.save()
     }
 
@@ -470,5 +674,44 @@ class MessageService {
         }
         let descriptor = FetchDescriptor<Message>(predicate: predicate, sortBy: [SortDescriptor(\.timestamp)])
         return (try? modelContext.fetch(descriptor)) ?? []
+    }
+
+    // MARK: - User Presence Tracking
+
+    func startListeningToUserPresence(userId: String) {
+        // Don't listen to our own presence
+        guard userId != authService.currentUser?.id else { return }
+
+        // Remove existing listener if any
+        userPresenceListeners[userId]?.remove()
+
+        userPresenceListeners[userId] = db.collection("users")
+            .document(userId)
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self = self,
+                      let data = snapshot?.data(),
+                      let isOnline = data["isOnline"] as? Bool else {
+                    return
+                }
+
+                Task { @MainActor in
+                    self.onlineUsers[userId] = isOnline
+                }
+            }
+    }
+
+    func startListeningToAllParticipantsPresence() {
+        // Get all unique participant IDs from conversations
+        let participantIds = Set(conversations.flatMap { $0.participantIds })
+
+        // Start listening to each participant's presence
+        for participantId in participantIds {
+            startListeningToUserPresence(userId: participantId)
+        }
+    }
+
+    func stopListeningToUserPresence(userId: String) {
+        userPresenceListeners[userId]?.remove()
+        userPresenceListeners.removeValue(forKey: userId)
     }
 }

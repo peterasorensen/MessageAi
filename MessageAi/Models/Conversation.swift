@@ -24,6 +24,7 @@ final class Conversation {
     var lastMessageSenderId: String
     var unreadCount: Int
     var isTyping: [String] // Array of user IDs who are currently typing
+    var deletedBy: [String] // Array of user IDs who deleted this conversation
     var createdAt: Date
     var groupName: String? // For group chats
     var groupAvatarURL: String? // For group chats
@@ -38,6 +39,7 @@ final class Conversation {
         lastMessageSenderId: String = "",
         unreadCount: Int = 0,
         isTyping: [String] = [],
+        deletedBy: [String] = [],
         createdAt: Date = Date(),
         groupName: String? = nil,
         groupAvatarURL: String? = nil
@@ -51,6 +53,7 @@ final class Conversation {
         self.lastMessageSenderId = lastMessageSenderId
         self.unreadCount = unreadCount
         self.isTyping = isTyping
+        self.deletedBy = deletedBy
         self.createdAt = createdAt
         self.groupName = groupName
         self.groupAvatarURL = groupAvatarURL
@@ -86,6 +89,7 @@ struct ConversationDTO: Codable {
     let lastMessageSenderId: String
     let unreadCount: [String: Int] // userId -> unread count mapping
     let isTyping: [String]
+    let deletedBy: [String] // Array of user IDs who deleted this conversation
     let createdAt: Date
     let groupName: String?
     let groupAvatarURL: String?
@@ -100,6 +104,7 @@ struct ConversationDTO: Codable {
         self.lastMessageSenderId = conversation.lastMessageSenderId
         self.unreadCount = [currentUserId: conversation.unreadCount]
         self.isTyping = conversation.isTyping
+        self.deletedBy = conversation.deletedBy
         self.createdAt = conversation.createdAt
         self.groupName = conversation.groupName
         self.groupAvatarURL = conversation.groupAvatarURL
@@ -116,6 +121,7 @@ struct ConversationDTO: Codable {
             lastMessageSenderId: lastMessageSenderId,
             unreadCount: unreadCount[currentUserId] ?? 0,
             isTyping: isTyping,
+            deletedBy: deletedBy,
             createdAt: createdAt,
             groupName: groupName,
             groupAvatarURL: groupAvatarURL

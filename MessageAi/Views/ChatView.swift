@@ -16,10 +16,14 @@ struct ChatView: View {
 
     @State private var messageText = ""
     @State private var isTyping = false
+    @State private var showingGroupInfo = false
     @FocusState private var isInputFocused: Bool
     @State private var scrollProxy: ScrollViewProxy?
     @State private var otherUser: User?
     @State private var userListener: ListenerRegistration?
+    @State private var messagesOffset: CGFloat = 0
+    @State private var showAllTimestamps = false
+    private let maxSwipeOffset: CGFloat = 60
 
     private var messages: [Message] {
         messageService.messages[conversation.id] ?? []
@@ -45,7 +49,10 @@ struct ChatView: View {
                                 isFromCurrentUser: message.senderId == currentUserId,
                                 showSenderName: conversation.conversationType == .group,
                                 isRead: message.readBy.contains(currentUserId),
-                                totalParticipants: conversation.participantIds.count
+                                totalParticipants: conversation.participantIds.count,
+                                participantNames: conversation.participantNames,
+                                messagesOffset: messagesOffset,
+                                forceShowTimestamp: showAllTimestamps
                             )
                             .id(message.id)
                             .transition(.asymmetric(
@@ -62,8 +69,26 @@ struct ChatView: View {
                         }
                     }
                     .padding(.top, 8)
-                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: messages.count)
                 }
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: messages.count)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 10)
+                        .onChanged { value in
+                            let translation = value.translation.width
+                            if translation < 0 {  // Only allow left swipe
+                                messagesOffset = max(translation, -maxSwipeOffset)
+                                if abs(translation) > 30 {
+                                    showAllTimestamps = true
+                                }
+                            }
+                        }
+                        .onEnded { value in
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                messagesOffset = 0
+                                showAllTimestamps = false
+                            }
+                        }
+                )
                 .onAppear {
                     scrollProxy = proxy
                     scrollToBottom(animated: false)
@@ -85,26 +110,45 @@ struct ChatView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                VStack(spacing: 2) {
-                    Text(conversation.otherParticipantName(currentUserId: currentUserId))
-                        .font(.headline)
+                Button(action: {
+                    if conversation.conversationType == .group {
+                        showingGroupInfo = true
+                    }
+                }) {
+                    VStack(spacing: 2) {
+                        Text(conversation.otherParticipantName(currentUserId: currentUserId))
+                            .font(.headline)
 
-                    if !conversation.isTyping.isEmpty && !conversation.isTyping.contains(currentUserId) {
-                        Text("typing...")
-                            .font(.caption)
-                            .foregroundStyle(.green)
-                    } else if let otherUser = otherUser {
-                        HStack(spacing: 4) {
-                            Circle()
-                                .fill(otherUser.isOnline ? Color.green : Color.gray)
-                                .frame(width: 6, height: 6)
-                            Text(otherUser.isOnline ? "Online" : "Offline")
+                        if !conversation.isTyping.isEmpty && !conversation.isTyping.contains(currentUserId) {
+                            Text("typing...")
+                                .font(.caption)
+                                .foregroundStyle(.green)
+                        } else if conversation.conversationType == .group {
+                            Text("\(conversation.participantIds.count) members")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                        } else if let otherUser = otherUser {
+                            HStack(spacing: 4) {
+                                Circle()
+                                    .fill(otherUser.isOnline ? Color.green : Color.gray)
+                                    .frame(width: 6, height: 6)
+                                Text(otherUser.isOnline ? "Online" : "Offline")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
+                .buttonStyle(.plain)
+                .disabled(conversation.conversationType != .group)
             }
+        }
+        .sheet(isPresented: $showingGroupInfo) {
+            GroupInfoView(
+                conversation: conversation,
+                authService: authService,
+                messageService: messageService
+            )
         }
         .onAppear {
             messageService.activeConversationId = conversation.id
@@ -238,19 +282,20 @@ struct ChatView: View {
 }
 
 #Preview {
-    NavigationStack {
+    let authService = AuthService()
+    return NavigationStack {
         ChatView(
             conversation: Conversation(
                 participantIds: ["1", "2"],
                 participantNames: ["1": "Me", "2": "John Doe"],
                 lastMessage: "Hey there!"
             ),
-            authService: AuthService(),
+            authService: authService,
             messageService: MessageService(
                 modelContext: ModelContext(
                     try! ModelContainer(for: Conversation.self, Message.self, User.self)
                 ),
-                authService: AuthService()
+                authService: authService
             )
         )
     }

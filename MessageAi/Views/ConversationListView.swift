@@ -11,6 +11,7 @@ import SwiftData
 struct ConversationListView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var showingNewChat = false
+    @State private var showingNewGroup = false
     @State private var searchText = ""
     @State private var navigationPath = NavigationPath()
     @State private var selectedConversation: Conversation?
@@ -59,7 +60,14 @@ struct ConversationListView: View {
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: { showingNewChat = true }) {
+                    Menu {
+                        Button(action: { showingNewChat = true }) {
+                            Label("New Chat", systemImage: "bubble.left.and.bubble.right")
+                        }
+                        Button(action: { showingNewGroup = true }) {
+                            Label("New Group", systemImage: "person.3")
+                        }
+                    } label: {
                         Image(systemName: "square.and.pencil")
                             .font(.title3)
                             .foregroundStyle(.blue)
@@ -77,6 +85,16 @@ struct ConversationListView: View {
                     }
                 )
             }
+            .sheet(isPresented: $showingNewGroup) {
+                NewGroupChatView(
+                    authService: authService,
+                    messageService: messageService,
+                    onConversationCreated: { conversation in
+                        selectedConversation = conversation
+                        showingNewGroup = false
+                    }
+                )
+            }
             .navigationDestination(item: $selectedConversation) { conversation in
                 ChatView(
                     conversation: conversation,
@@ -88,7 +106,13 @@ struct ConversationListView: View {
         .onAppear {
             if let userId = authService.currentUser?.id {
                 messageService.startListeningToConversations(userId: userId)
+                // Start listening to all participants' presence
+                messageService.startListeningToAllParticipantsPresence()
             }
+        }
+        .onChange(of: messageService.conversations) { _, newConversations in
+            // When conversations update, ensure we're listening to all participants
+            messageService.startListeningToAllParticipantsPresence()
         }
     }
 
@@ -102,7 +126,8 @@ struct ConversationListView: View {
                 )) {
                     ConversationRow(
                         conversation: conversation,
-                        currentUserId: authService.currentUser?.id ?? ""
+                        currentUserId: authService.currentUser?.id ?? "",
+                        messageService: messageService
                     )
                 }
                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
@@ -174,15 +199,39 @@ struct ConversationListView: View {
 struct ConversationRow: View {
     let conversation: Conversation
     let currentUserId: String
+    let messageService: MessageService
+
+    private var otherUserId: String? {
+        conversation.otherParticipantId(currentUserId: currentUserId)
+    }
+
+    private var isOtherUserOnline: Bool {
+        guard let userId = otherUserId else { return false }
+        return messageService.onlineUsers[userId] ?? false
+    }
 
     var body: some View {
         HStack(spacing: 12) {
-            // Avatar
-            AvatarView(
-                name: conversation.otherParticipantName(currentUserId: currentUserId),
-                size: 54,
-                isOnline: false // We'll implement presence later
-            )
+            // Avatar (group or individual)
+            if conversation.conversationType == .group {
+                // Group avatar
+                ZStack {
+                    Circle()
+                        .fill(Color.blue.opacity(0.15))
+                        .frame(width: 54, height: 54)
+
+                    Image(systemName: "person.3.fill")
+                        .font(.system(size: 24))
+                        .foregroundStyle(.blue)
+                }
+            } else {
+                // Individual avatar
+                AvatarView(
+                    name: conversation.otherParticipantName(currentUserId: currentUserId),
+                    size: 54,
+                    isOnline: isOtherUserOnline
+                )
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 // Name and timestamp

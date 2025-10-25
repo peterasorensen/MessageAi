@@ -13,6 +13,9 @@ struct MessageRow: View {
     let showSenderName: Bool
     let isRead: Bool
     let totalParticipants: Int
+    let participantNames: [String: String] // userId -> name mapping
+    let messagesOffset: CGFloat
+    let forceShowTimestamp: Bool
 
     private var actualStatus: MessageStatus {
         // For optimistic messages, use their status
@@ -20,12 +23,19 @@ struct MessageRow: View {
             return message.messageStatus
         }
 
-        // Check read status first
-        if !message.readBy.isEmpty {
+        // Check read status first - but only if OTHER users (not sender) have read it
+        let readByOthers = message.readBy.filter { $0 != message.senderId }
+        if !readByOthers.isEmpty {
             return .read
         }
 
-        // Check delivery status
+        // In group chats (3+ participants), skip delivered status
+        // Go directly from sent to read (shown as profile pictures)
+        if totalParticipants > 2 {
+            return .sent
+        }
+
+        // For 1-on-1 chats, check delivery status
         let deliveredCount = message.deliveredToUsers.count
         if deliveredCount >= totalParticipants {
             return .delivered
@@ -37,26 +47,33 @@ struct MessageRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            if isFromCurrentUser {
-                Spacer(minLength: 60)
+        ZStack(alignment: .leading) {
+            // Timestamp layer - always rendered at fixed position on right
+            HStack {
+                Spacer()
+                Text(formatTimestamp(message.timestamp))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 80, alignment: .trailing)
+                    .padding(.trailing, 8)
             }
 
-            VStack(alignment: isFromCurrentUser ? .trailing : .leading, spacing: 4) {
-                // Sender name (for group chats)
-                if showSenderName && !isFromCurrentUser {
-                    Text(message.senderName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(.leading, 12)
+            // Message content layer - slides left to reveal timestamp
+            HStack(alignment: .bottom, spacing: 8) {
+                if isFromCurrentUser {
+                    Spacer(minLength: 60)
                 }
 
-                // Message bubble
-                HStack(alignment: .bottom, spacing: 4) {
-                    if isFromCurrentUser {
-                        messageStatusIndicator
+                VStack(alignment: isFromCurrentUser ? .trailing : .leading, spacing: 4) {
+                    // Sender name (for group chats)
+                    if showSenderName && !isFromCurrentUser {
+                        Text(message.senderName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 12)
                     }
 
+                    // Message bubble
                     Text(message.content)
                         .font(.system(size: 16))
                         .foregroundStyle(isFromCurrentUser ? .white : .primary)
@@ -64,20 +81,28 @@ struct MessageRow: View {
                         .padding(.vertical, 10)
                         .background(messageBubbleBackground)
                         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                    // Status indicator below bubble (for sent messages only)
+                    if isFromCurrentUser {
+                        HStack(spacing: 4) {
+                            messageStatusIndicator
+                        }
+                        .padding(.horizontal, 12)
+                    }
                 }
 
-                // Timestamp
-                Text(formatTimestamp(message.timestamp))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
+                if !isFromCurrentUser {
+                    Spacer(minLength: 60)
+                }
             }
-
-            if !isFromCurrentUser {
-                Spacer(minLength: 60)
-            }
+            .padding(.horizontal, 12)
+            .offset(x: messagesOffset)
+            .background(
+                messagesOffset == 0 ?
+                    Color(uiColor: .systemBackground) :
+                    Color(uiColor: .systemBackground).opacity(0.3)
+            )
         }
-        .padding(.horizontal, 12)
         .padding(.vertical, 2)
         .transition(.scale.combined(with: .opacity))
     }
@@ -108,30 +133,36 @@ struct MessageRow: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.red)
                     .symbolEffect(.bounce, value: actualStatus)
-            } else if actualStatus == .sent {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.secondary)
+            } else if actualStatus == .read && !message.readBy.isEmpty {
+                // Show profile pictures of users who read the message (excluding sender)
+                let readByOthers = message.readBy.filter { $0 != message.senderId }
+                if !readByOthers.isEmpty {
+                    HStack(spacing: -8) {
+                        ForEach(readByOthers.prefix(3), id: \.self) { userId in
+                            AvatarView(
+                                name: participantNames[userId] ?? "?",
+                                size: 14
+                            )
+                            .overlay(
+                                Circle()
+                                    .stroke(Color(uiColor: .systemBackground), lineWidth: 1.5)
+                            )
+                        }
+                    }
                     .transition(.scale.combined(with: .opacity))
+                }
             } else if actualStatus == .delivered {
-                HStack(spacing: -3) {
-                    Image(systemName: "checkmark")
-                    Image(systemName: "checkmark")
-                }
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(.secondary)
-                .transition(.scale.combined(with: .opacity))
-            } else if actualStatus == .read {
-                HStack(spacing: -3) {
-                    Image(systemName: "checkmark")
-                    Image(systemName: "checkmark")
-                }
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(.blue)
-                .transition(.scale.combined(with: .opacity))
+                Text("Delivered")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .transition(.opacity)
+            } else if actualStatus == .sent {
+                Text("Sent")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .transition(.opacity)
             }
         }
-        .frame(width: 16)
         .animation(.easeInOut(duration: 0.2), value: actualStatus)
         .animation(.easeInOut(duration: 0.2), value: message.deliveredToUsers.count)
         .animation(.easeInOut(duration: 0.2), value: message.readBy.count)
@@ -164,7 +195,10 @@ struct MessageRow: View {
             isFromCurrentUser: false,
             showSenderName: false,
             isRead: false,
-            totalParticipants: 2
+            totalParticipants: 2,
+            participantNames: ["1": "John", "2": "Me"],
+            messagesOffset: 0,
+            forceShowTimestamp: false
         )
 
         MessageRow(
@@ -173,12 +207,16 @@ struct MessageRow: View {
                 senderId: "2",
                 senderName: "Me",
                 content: "I'm doing great, thanks!",
-                status: .delivered
+                status: .delivered,
+                readBy: ["1"]
             ),
             isFromCurrentUser: true,
             showSenderName: false,
             isRead: true,
-            totalParticipants: 2
+            totalParticipants: 2,
+            participantNames: ["1": "John", "2": "Me"],
+            messagesOffset: 0,
+            forceShowTimestamp: false
         )
     }
     .padding()

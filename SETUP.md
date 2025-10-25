@@ -126,17 +126,34 @@ service cloud.firestore {
      - Display Name: "Bob"
      - Email: `bob@test.com`
      - Password: `password123`
+   - Create Account 3:
+     - Display Name: "Charlie"
+     - Email: `charlie@test.com`
+     - Password: `password123`
 
-2. **Start a conversation**
+2. **Start a one-on-one conversation**
    - Sign in as Alice
-   - Tap the compose button (pencil icon)
+   - Tap the compose button (pencil icon) → **New Chat**
    - Select Bob from the user list
    - Send a message
    - See real-time delivery!
 
-3. **Test on second device**
+3. **Create a group chat**
+   - Tap the compose button (pencil icon) → **New Group**
+   - Enter group name: "Test Group"
+   - Select Bob and Charlie (minimum 2 members)
+   - Tap "Create"
+   - Send a message to the group
+   - All members will receive it!
+
+4. **Manage group chat**
+   - Open a group conversation
+   - Tap the group name at the top
+   - View members, add new members, rename group, or leave group
+
+5. **Test on second device**
    - Sign in as Bob on another simulator or device
-   - See Alice's message appear
+   - See Alice's message appear in both one-on-one and group chats
    - Reply to test two-way messaging
 
 ## Troubleshooting
@@ -175,14 +192,89 @@ service cloud.firestore {
 - Verify credentials are correct
 - Check Firebase Console → Authentication → Users to see registered users
 
+## Step 8: Configure Push Notifications
+
+### 8.1 Enable Push Notifications in Xcode
+
+1. Open `MessageAi.xcodeproj` in Xcode
+2. Select the **MessageAi** target
+3. Go to **Signing & Capabilities** tab
+4. Click **+ Capability** → Add **Push Notifications**
+5. Click **+ Capability** → Add **Background Modes**
+6. Check **Remote notifications** under Background Modes
+
+### 8.2 Create APNs Authentication Key
+
+1. Go to [Apple Developer Portal](https://developer.apple.com/account)
+2. Navigate to **Certificates, Identifiers & Profiles** → **Keys**
+3. Click **+** to create a new key
+4. Name it "MessageAi Push Notifications"
+5. Check **Apple Push Notifications service (APNs)**
+6. Click **Continue** → **Register**
+7. **Download the .p8 key file** (you can only download once!)
+8. Note your **Key ID** and **Team ID** (top right of portal)
+
+### 8.3 Upload APNs Key to Firebase
+
+1. Go to [Firebase Console](https://console.firebase.google.com/)
+2. Select your MessageAi project
+3. Click ⚙️ → **Project settings** → **Cloud Messaging** tab
+4. Scroll to **Apple app configuration**
+5. Click **Upload** under "APNs Authentication Key"
+6. Upload your .p8 file
+7. Enter your **Key ID** and **Team ID**
+8. Click **Upload**
+
+### 8.4 Upgrade to Firebase Blaze Plan
+
+**Important:** Cloud Functions require the Blaze (pay-as-you-go) plan.
+
+1. Go to: https://console.firebase.google.com/project/messageai-5c4e7/usage/details
+2. Click **"Upgrade to Blaze"**
+3. Add a payment method
+4. Don't worry - Firebase has a **generous free tier**:
+   - First 2M function invocations/month: **FREE**
+   - You'll likely stay within free limits during development
+
+### 8.5 Deploy Firebase Cloud Functions
+
+```bash
+# Install Firebase CLI if you haven't
+npm install -g firebase-tools
+
+# Login to Firebase
+firebase login
+
+# Install dependencies
+cd firebase-functions
+npm install
+
+# Deploy the notification function
+firebase deploy --only functions
+```
+
+**Note:** If you want to test without Cloud Functions (no push notifications when app is closed), you can skip this step. Real-time messaging will still work when the app is open.
+
+### 8.6 Update Firestore Security Rules
+
+The `firestore.rules` file has been created with the correct rules. Deploy them:
+
+```bash
+firebase deploy --only firestore:rules
+```
+
+Or update them directly in Firebase Console → Firestore Database → Rules tab.
+
+### 8.7 Test Push Notifications
+
+1. Build on a **physical device** (simulator doesn't support push notifications)
+2. Log in as User A
+3. Background or close the app
+4. On another device, log in as User B and send a message to User A
+5. User A should receive a push notification
+6. **Message will be marked as delivered without opening the app!**
+
 ## Next Steps
-
-### Push Notifications (Optional)
-
-1. Enable Firebase Cloud Messaging in Firebase Console
-2. Add APNs authentication key
-3. Request notification permissions in app
-4. Handle notification payloads
 
 ### Production Deployment
 
@@ -196,6 +288,7 @@ service cloud.firestore {
 - ✅ Email/Password Authentication
 - ✅ Real-time messaging with Firestore
 - ✅ One-on-one chat
+- ✅ **Group chat (3+ users)**
 - ✅ Message persistence (SwiftData)
 - ✅ Optimistic UI updates
 - ✅ Online/offline indicators
@@ -203,6 +296,9 @@ service cloud.firestore {
 - ✅ Read receipts
 - ✅ Typing indicators
 - ✅ Delivery states (sending/sent/delivered/read)
+- ✅ **Push notifications (foreground/background/closed)**
+- ✅ **Background message delivery (marked delivered on notification receipt)**
+- ✅ **Group management (add members, rename group, leave group)**
 - ✅ Beautiful Signal-inspired UI
 
 ## Need Help?

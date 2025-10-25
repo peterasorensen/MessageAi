@@ -32,6 +32,7 @@ struct MessageInputBar: View {
                         .onChange(of: text) { oldValue, newValue in
                             handleTyping(oldValue: oldValue, newValue: newValue)
                         }
+                        .accessibilityIdentifier("messageInputField")
                 }
                 .background(Color(uiColor: .systemGray6))
                 .cornerRadius(20)
@@ -44,6 +45,7 @@ struct MessageInputBar: View {
                 }
                 .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .animation(.easeInOut(duration: 0.2), value: text.isEmpty)
+                .accessibilityIdentifier("sendButton")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
