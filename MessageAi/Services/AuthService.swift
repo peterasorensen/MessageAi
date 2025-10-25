@@ -184,4 +184,14 @@ class AuthService {
 
         return nil
     }
+
+    func listenToUser(userId: String, onChange: @escaping (User) -> Void) -> ListenerRegistration {
+        return db.collection("users").document(userId).addSnapshotListener { snapshot, error in
+            guard let data = snapshot?.data(),
+                  let userDTO = try? Firestore.Decoder().decode(UserDTO.self, from: data) else {
+                return
+            }
+            onChange(userDTO.toUser())
+        }
+    }
 }

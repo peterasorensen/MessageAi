@@ -258,10 +258,7 @@ class MessageService {
                         }
                     }
 
-                    // Mark messages as read
-                    Task {
-                        try? await self.markMessagesAsRead(conversationId: conversationId, userId: currentUserId)
-                    }
+                    // Don't auto-mark as read here - only when ChatView is actively open
                 }
             }
     }
@@ -311,12 +308,20 @@ class MessageService {
 
             print("   ✅ Message saved to Firestore: \(optimisticMessage.id)")
 
-            // Update conversation's last message
-            let updates: [String: Any] = [
+            // Update conversation's last message and increment unread count for other participants
+            let conversation = conversations.first(where: { $0.id == conversationId })
+            var updates: [String: Any] = [
                 "lastMessage": content,
                 "lastMessageTimestamp": Timestamp(date: optimisticMessage.timestamp),
                 "lastMessageSenderId": currentUserId
             ]
+
+            // Increment unread count for all participants except sender
+            if let participantIds = conversation?.participantIds {
+                for participantId in participantIds where participantId != currentUserId {
+                    updates["unreadCount.\(participantId)"] = FieldValue.increment(Int64(1))
+                }
+            }
 
             try await db.collection("conversations")
                 .document(conversationId)
@@ -386,24 +391,48 @@ class MessageService {
     // MARK: - Read Receipts
 
     func markMessagesAsRead(conversationId: String, userId: String) async throws {
+        print("📖 Marking messages as read for conversation: \(conversationId)")
+
+        // Update local conversation unread count immediately
+        await MainActor.run {
+            if let index = conversations.firstIndex(where: { $0.id == conversationId }) {
+                conversations[index].unreadCount = 0
+                print("   ✅ Local unread count set to 0")
+            }
+        }
+
+        // Update Firestore unread count
+        let conversationRef = db.collection("conversations").document(conversationId)
+        try await conversationRef.updateData(["unreadCount.\(userId)": 0])
+        print("   ✅ Firestore unread count set to 0")
+
+        // Update readBy for messages
         guard let messages = messages[conversationId] else { return }
 
-        let batch = db.batch()
+        // Update local messages immediately
+        await MainActor.run {
+            for (index, message) in messages.enumerated() where message.senderId != userId && !message.readBy.contains(userId) {
+                self.messages[conversationId]?[index].readBy.append(userId)
 
+                // Also save to local storage
+                if let localMessage = self.messages[conversationId]?[index] {
+                    self.saveToLocal(message: localMessage)
+                }
+            }
+            print("   ✅ Updated local readBy arrays")
+        }
+
+        // Try to update Firestore (messages might be deleted due to cleanup, that's ok)
         for message in messages where message.senderId != userId && !message.readBy.contains(userId) {
             let messageRef = db.collection("conversations")
                 .document(conversationId)
                 .collection("messages")
                 .document(message.id)
 
-            batch.updateData(["readBy": FieldValue.arrayUnion([userId])], forDocument: messageRef)
+            // Use setData with merge to avoid errors if document doesn't exist
+            try? await messageRef.setData(["readBy": FieldValue.arrayUnion([userId])], merge: true)
         }
-
-        try await batch.commit()
-
-        // Update unread count in conversation
-        let conversationRef = db.collection("conversations").document(conversationId)
-        try await conversationRef.updateData(["unreadCount.\(userId)": 0])
+        print("   ✅ Attempted to update Firestore readBy (if messages exist)")
     }
 
     // MARK: - Typing Indicators

@@ -218,8 +218,8 @@ struct ConversationRow: View {
                     }
                 }
 
-                // Typing indicator
-                if !conversation.isTyping.isEmpty {
+                // Typing indicator (only show if OTHER users are typing)
+                if !conversation.isTyping.isEmpty && !conversation.isTyping.contains(currentUserId) {
                     HStack(spacing: 4) {
                         ForEach(0..<3) { index in
                             Circle()

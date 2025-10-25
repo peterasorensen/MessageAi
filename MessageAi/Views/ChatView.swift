@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import FirebaseFirestore
 
 struct ChatView: View {
     let conversation: Conversation
@@ -17,6 +18,8 @@ struct ChatView: View {
     @State private var isTyping = false
     @FocusState private var isInputFocused: Bool
     @State private var scrollProxy: ScrollViewProxy?
+    @State private var otherUser: User?
+    @State private var userListener: ListenerRegistration?
 
     private var messages: [Message] {
         messageService.messages[conversation.id] ?? []
@@ -24,6 +27,10 @@ struct ChatView: View {
 
     private var currentUserId: String {
         authService.currentUser?.id ?? ""
+    }
+
+    private var otherUserId: String? {
+        conversation.participantIds.first { $0 != currentUserId }
     }
 
     var body: some View {
@@ -47,8 +54,8 @@ struct ChatView: View {
                             ))
                         }
 
-                        // Typing indicator
-                        if !conversation.isTyping.isEmpty {
+                        // Typing indicator (only show if OTHER users are typing)
+                        if !conversation.isTyping.isEmpty && !conversation.isTyping.contains(currentUserId) {
                             typingIndicator
                                 .id("typing")
                                 .transition(.scale.combined(with: .opacity))
@@ -82,10 +89,19 @@ struct ChatView: View {
                     Text(conversation.otherParticipantName(currentUserId: currentUserId))
                         .font(.headline)
 
-                    if !conversation.isTyping.isEmpty {
+                    if !conversation.isTyping.isEmpty && !conversation.isTyping.contains(currentUserId) {
                         Text("typing...")
                             .font(.caption)
                             .foregroundStyle(.green)
+                    } else if let otherUser = otherUser {
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(otherUser.isOnline ? Color.green : Color.gray)
+                                .frame(width: 6, height: 6)
+                            Text(otherUser.isOnline ? "Online" : "Offline")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
             }
@@ -93,6 +109,26 @@ struct ChatView: View {
         .onAppear {
             messageService.activeConversationId = conversation.id
             messageService.startListeningToMessages(conversationId: conversation.id)
+
+            // Fetch other user's profile and listen for online status updates
+            if let otherUserId = otherUserId {
+                Task {
+                    await loadOtherUser(userId: otherUserId)
+                }
+            }
+
+            // Mark messages as read when opening chat
+            Task {
+                try? await messageService.markMessagesAsRead(conversationId: conversation.id, userId: currentUserId)
+            }
+        }
+        .onChange(of: messages.count) { _, _ in
+            // Mark messages as read when new messages arrive while viewing
+            if messageService.activeConversationId == conversation.id {
+                Task {
+                    try? await messageService.markMessagesAsRead(conversationId: conversation.id, userId: currentUserId)
+                }
+            }
         }
         .onDisappear {
             messageService.activeConversationId = nil
@@ -107,6 +143,9 @@ struct ChatView: View {
                     )
                 }
             }
+
+            // Remove user listener
+            userListener?.remove()
         }
     }
 
@@ -184,6 +223,15 @@ struct ChatView: View {
                 } else if !conversation.isTyping.isEmpty {
                     proxy.scrollTo("typing", anchor: .bottom)
                 }
+            }
+        }
+    }
+
+    private func loadOtherUser(userId: String) async {
+        // Set up real-time listener for user status
+        await MainActor.run {
+            userListener = authService.listenToUser(userId: userId) { user in
+                self.otherUser = user
             }
         }
     }
