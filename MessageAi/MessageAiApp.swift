@@ -52,19 +52,23 @@ struct MessageAiApp: App {
 
 struct ContentView: View {
     @State private var authService = AuthService()
+    @State private var translationService = TranslationService()
 
     var body: some View {
         RootView()
             .environment(authService)
+            .environment(translationService)
     }
 }
 
 struct RootView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(AuthService.self) private var authService
+    @Environment(TranslationService.self) private var translationService
     @Environment(\.scenePhase) private var scenePhase
     @State private var messageService: MessageService?
     @State private var notificationService = NotificationService()
+    @State private var showOnboarding = false
 
     var body: some View {
         Group {
@@ -74,7 +78,11 @@ struct RootView: View {
                         authService: authService,
                         messageService: messageService
                     )
+                    .environment(translationService)
                     .transition(.opacity)
+                    .sheet(isPresented: $showOnboarding) {
+                        LanguageOnboardingView()
+                    }
                 }
             } else {
                 LoginView(authService: authService)
@@ -84,7 +92,12 @@ struct RootView: View {
         .animation(.easeInOut(duration: 0.3), value: authService.isAuthenticated)
         .onAppear {
             if messageService == nil {
-                messageService = MessageService(modelContext: modelContext, authService: authService)
+                messageService = MessageService(modelContext: modelContext, authService: authService, translationService: translationService)
+            }
+
+            // Check if user needs onboarding
+            if authService.isAuthenticated && authService.currentUser?.needsOnboarding == true {
+                showOnboarding = true
             }
 
             // Set user online when app appears
@@ -96,6 +109,11 @@ struct RootView: View {
                     // Update FCM token for this user
                     try? await notificationService.updateFCMToken(userId: userId)
                 }
+            }
+        }
+        .onChange(of: authService.currentUser?.needsOnboarding) { oldValue, newValue in
+            if authService.isAuthenticated && newValue == true {
+                showOnboarding = true
             }
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in

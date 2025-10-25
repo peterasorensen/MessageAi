@@ -24,10 +24,12 @@ class MessageService {
     private var userPresenceListeners: [String: ListenerRegistration] = [:]
     private let modelContext: ModelContext
     private let authService: AuthService
+    private let translationService: TranslationService
 
-    init(modelContext: ModelContext, authService: AuthService) {
+    init(modelContext: ModelContext, authService: AuthService, translationService: TranslationService) {
         self.modelContext = modelContext
         self.authService = authService
+        self.translationService = translationService
 
         // Listen for background message delivery notifications
         NotificationCenter.default.addObserver(
@@ -358,6 +360,16 @@ class MessageService {
                                         userId: currentUserId,
                                         participantIds: self.conversations.first(where: { $0.id == conversationId })?.participantIds ?? []
                                     )
+                                }
+
+                                // Analyze and translate new message (if it's not from current user and translation is needed)
+                                if message.senderId != currentUserId && message.detectedLanguage == nil {
+                                    Task {
+                                        await self.analyzeAndTranslateMessage(
+                                            conversationId: conversationId,
+                                            messageId: message.id
+                                        )
+                                    }
                                 }
                             }
 
@@ -713,5 +725,63 @@ class MessageService {
     func stopListeningToUserPresence(userId: String) {
         userPresenceListeners[userId]?.remove()
         userPresenceListeners.removeValue(forKey: userId)
+    }
+
+    // MARK: - Translation
+
+    func analyzeAndTranslateMessage(conversationId: String, messageId: String) async {
+        guard let user = authService.currentUser,
+              let targetLanguage = user.targetLanguage,
+              let fluentLanguage = user.fluentLanguage,
+              let messageIndex = messages[conversationId]?.firstIndex(where: { $0.id == messageId }),
+              let message = messages[conversationId]?[messageIndex] else {
+            return
+        }
+
+        print("🌍 Analyzing message for translation...")
+
+        do {
+            let result = try await translationService.analyzeMessage(
+                messageText: message.content,
+                targetLanguage: targetLanguage,
+                fluentLanguage: fluentLanguage
+            )
+
+            // Update message with translation data
+            await MainActor.run {
+                if let index = self.messages[conversationId]?.firstIndex(where: { $0.id == messageId }) {
+                    self.messages[conversationId]?[index].detectedLanguage = result.detectedLanguage
+                    self.messages[conversationId]?[index].translatedText = result.fullTranslation
+                    self.messages[conversationId]?[index].setWordTranslations(result.wordTranslations)
+
+                    print("✅ Translation complete: \(result.detectedLanguage) → \(targetLanguage)")
+                }
+            }
+
+            // Save translation to Firestore
+            let encoder = JSONEncoder()
+            if let wordTranslationsData = try? encoder.encode(result.wordTranslations),
+               let wordTranslationsJSON = String(data: wordTranslationsData, encoding: .utf8) {
+                let updates: [String: Any] = [
+                    "detectedLanguage": result.detectedLanguage,
+                    "translatedText": result.fullTranslation,
+                    "wordTranslationsJSON": wordTranslationsJSON
+                ]
+
+                try? await db.collection("conversations")
+                    .document(conversationId)
+                    .collection("messages")
+                    .document(messageId)
+                    .updateData(updates)
+            }
+
+            // Update local storage
+            if let updatedMessage = messages[conversationId]?.first(where: { $0.id == messageId }) {
+                saveToLocal(message: updatedMessage)
+            }
+
+        } catch {
+            print("❌ Translation error: \(error.localizedDescription)")
+        }
     }
 }

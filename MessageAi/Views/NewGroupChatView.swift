@@ -234,7 +234,8 @@ struct NewGroupChatView: View {
             modelContext: ModelContext(
                 try! ModelContainer(for: Conversation.self, Message.self, User.self)
             ),
-            authService: AuthService()
+            authService: AuthService(),
+            translationService: TranslationService()
         ),
         onConversationCreated: { _ in }
     )

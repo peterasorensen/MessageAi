@@ -20,6 +20,12 @@ final class User {
     var createdAt: Date
     var fcmToken: String? // Firebase Cloud Messaging token for push notifications
 
+    // Translation preferences
+    var targetLanguage: String? // Language user is learning (e.g., "es", "fr")
+    var fluentLanguage: String? // Language user is fluent in (e.g., "en")
+    var autoTranslateEnabled: Bool // Auto-translate all incoming messages
+    var needsOnboarding: Bool // Show onboarding flow on first launch
+
     init(
         id: String,
         displayName: String,
@@ -29,7 +35,11 @@ final class User {
         isOnline: Bool = false,
         lastSeen: Date = Date(),
         createdAt: Date = Date(),
-        fcmToken: String? = nil
+        fcmToken: String? = nil,
+        targetLanguage: String? = nil,
+        fluentLanguage: String? = nil,
+        autoTranslateEnabled: Bool = false,
+        needsOnboarding: Bool = true
     ) {
         self.id = id
         self.displayName = displayName
@@ -40,6 +50,10 @@ final class User {
         self.lastSeen = lastSeen
         self.createdAt = createdAt
         self.fcmToken = fcmToken
+        self.targetLanguage = targetLanguage
+        self.fluentLanguage = fluentLanguage
+        self.autoTranslateEnabled = autoTranslateEnabled
+        self.needsOnboarding = needsOnboarding
     }
 }
 
@@ -54,6 +68,10 @@ struct UserDTO: Codable {
     let lastSeen: Date
     let createdAt: Date
     let fcmToken: String?
+    let targetLanguage: String?
+    let fluentLanguage: String?
+    let autoTranslateEnabled: Bool
+    let needsOnboarding: Bool
 
     init(from user: User) {
         self.id = user.id
@@ -65,6 +83,10 @@ struct UserDTO: Codable {
         self.lastSeen = user.lastSeen
         self.createdAt = user.createdAt
         self.fcmToken = user.fcmToken
+        self.targetLanguage = user.targetLanguage
+        self.fluentLanguage = user.fluentLanguage
+        self.autoTranslateEnabled = user.autoTranslateEnabled
+        self.needsOnboarding = user.needsOnboarding
     }
 
     func toUser() -> User {
@@ -77,7 +99,11 @@ struct UserDTO: Codable {
             isOnline: isOnline,
             lastSeen: lastSeen,
             createdAt: createdAt,
-            fcmToken: fcmToken
+            fcmToken: fcmToken,
+            targetLanguage: targetLanguage,
+            fluentLanguage: fluentLanguage,
+            autoTranslateEnabled: autoTranslateEnabled,
+            needsOnboarding: needsOnboarding
         )
     }
 }

@@ -16,6 +16,11 @@ struct MessageRow: View {
     let participantNames: [String: String] // userId -> name mapping
     let messagesOffset: CGFloat
     let forceShowTimestamp: Bool
+    let autoTranslateEnabled: Bool
+
+    @State private var showOriginal = false
+    @State private var selectedWord: WordTranslation?
+    @State private var wordPopoverPosition: CGPoint?
 
     private var actualStatus: MessageStatus {
         // For optimistic messages, use their status
@@ -74,13 +79,27 @@ struct MessageRow: View {
                     }
 
                     // Message bubble
-                    Text(message.content)
-                        .font(.system(size: 16))
-                        .foregroundStyle(isFromCurrentUser ? .white : .primary)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(messageBubbleBackground)
-                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    VStack(alignment: isFromCurrentUser ? .trailing : .leading, spacing: 4) {
+                        Text(displayedText)
+                            .font(.system(size: 16))
+                            .foregroundStyle(isFromCurrentUser ? .white : .primary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(messageBubbleBackground)
+                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                        // Translation toggle (if translation available)
+                        if hasTranslation {
+                            Button {
+                                showOriginal.toggle()
+                            } label: {
+                                Text(showOriginal ? "See translation" : "See original")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 14)
+                        }
+                    }
 
                     // Status indicator below bubble (for sent messages only)
                     if isFromCurrentUser {
@@ -105,6 +124,17 @@ struct MessageRow: View {
         }
         .padding(.vertical, 2)
         .transition(.scale.combined(with: .opacity))
+    }
+
+    private var hasTranslation: Bool {
+        message.translatedText != nil && !message.translatedText!.isEmpty
+    }
+
+    private var displayedText: String {
+        if hasTranslation && autoTranslateEnabled && !showOriginal {
+            return message.translatedText ?? message.content
+        }
+        return message.content
     }
 
     private var messageBubbleBackground: some View {
@@ -198,7 +228,8 @@ struct MessageRow: View {
             totalParticipants: 2,
             participantNames: ["1": "John", "2": "Me"],
             messagesOffset: 0,
-            forceShowTimestamp: false
+            forceShowTimestamp: false,
+            autoTranslateEnabled: false
         )
 
         MessageRow(
@@ -216,7 +247,8 @@ struct MessageRow: View {
             totalParticipants: 2,
             participantNames: ["1": "John", "2": "Me"],
             messagesOffset: 0,
-            forceShowTimestamp: false
+            forceShowTimestamp: false,
+            autoTranslateEnabled: false
         )
     }
     .padding()

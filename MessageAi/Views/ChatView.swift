@@ -52,7 +52,8 @@ struct ChatView: View {
                                 totalParticipants: conversation.participantIds.count,
                                 participantNames: conversation.participantNames,
                                 messagesOffset: messagesOffset,
-                                forceShowTimestamp: showAllTimestamps
+                                forceShowTimestamp: showAllTimestamps,
+                                autoTranslateEnabled: authService.currentUser?.autoTranslateEnabled ?? false
                             )
                             .id(message.id)
                             .transition(.asymmetric(
@@ -283,7 +284,9 @@ struct ChatView: View {
 
 #Preview {
     let authService = AuthService()
-    return NavigationStack {
+    let translationService = TranslationService()
+
+    NavigationStack {
         ChatView(
             conversation: Conversation(
                 participantIds: ["1", "2"],
@@ -295,7 +298,8 @@ struct ChatView: View {
                 modelContext: ModelContext(
                     try! ModelContainer(for: Conversation.self, Message.self, User.self)
                 ),
-                authService: authService
+                authService: authService,
+                translationService: translationService
             )
         )
     }

@@ -12,6 +12,7 @@ struct ConversationListView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var showingNewChat = false
     @State private var showingNewGroup = false
+    @State private var showingSettings = false
     @State private var searchText = ""
     @State private var navigationPath = NavigationPath()
     @State private var selectedConversation: Conversation?
@@ -44,7 +45,7 @@ struct ConversationListView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Menu {
-                        Button(action: { /* Settings */ }) {
+                        Button(action: { showingSettings = true }) {
                             Label("Settings", systemImage: "gearshape")
                         }
                         Button(role: .destructive, action: handleSignOut) {
@@ -94,6 +95,9 @@ struct ConversationListView: View {
                         showingNewGroup = false
                     }
                 )
+            }
+            .sheet(isPresented: $showingSettings) {
+                SettingsView()
             }
             .navigationDestination(item: $selectedConversation) { conversation in
                 ChatView(
@@ -408,5 +412,12 @@ struct NewChatView: View {
 }
 
 #Preview {
-    ConversationListView(authService: AuthService(), messageService: MessageService(modelContext: ModelContext(try! ModelContainer(for: Conversation.self, Message.self, User.self)), authService: AuthService()))
+    ConversationListView(
+        authService: AuthService(),
+        messageService: MessageService(
+            modelContext: ModelContext(try! ModelContainer(for: Conversation.self, Message.self, User.self)),
+            authService: AuthService(),
+            translationService: TranslationService()
+        )
+    )
 }

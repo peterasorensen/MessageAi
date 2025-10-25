@@ -124,16 +124,36 @@ class AuthService {
         try await db.collection("users").document(user.id).setData(data)
     }
 
-    func updateUserProfile(displayName: String? = nil, avatarURL: String? = nil) async throws {
+    func updateUserProfile(
+        displayName: String? = nil,
+        phoneNumber: String? = nil,
+        avatarURL: String? = nil,
+        targetLanguage: String? = nil,
+        fluentLanguage: String? = nil,
+        autoTranslateEnabled: Bool? = nil
+    ) async throws {
         guard let user = currentUser else { return }
 
         var updates: [String: Any] = [:]
         if let displayName = displayName {
             updates["displayName"] = displayName
         }
+        if let phoneNumber = phoneNumber {
+            updates["phoneNumber"] = phoneNumber
+        }
         if let avatarURL = avatarURL {
             updates["avatarURL"] = avatarURL
         }
+        if let targetLanguage = targetLanguage {
+            updates["targetLanguage"] = targetLanguage
+        }
+        if let fluentLanguage = fluentLanguage {
+            updates["fluentLanguage"] = fluentLanguage
+        }
+        if let autoTranslateEnabled = autoTranslateEnabled {
+            updates["autoTranslateEnabled"] = autoTranslateEnabled
+        }
+        updates["needsOnboarding"] = false
 
         try await db.collection("users").document(user.id).updateData(updates)
 
@@ -142,9 +162,22 @@ class AuthService {
             if let displayName = displayName {
                 self.currentUser?.displayName = displayName
             }
+            if let phoneNumber = phoneNumber {
+                self.currentUser?.phoneNumber = phoneNumber
+            }
             if let avatarURL = avatarURL {
                 self.currentUser?.avatarURL = avatarURL
             }
+            if let targetLanguage = targetLanguage {
+                self.currentUser?.targetLanguage = targetLanguage
+            }
+            if let fluentLanguage = fluentLanguage {
+                self.currentUser?.fluentLanguage = fluentLanguage
+            }
+            if let autoTranslateEnabled = autoTranslateEnabled {
+                self.currentUser?.autoTranslateEnabled = autoTranslateEnabled
+            }
+            self.currentUser?.needsOnboarding = false
         }
     }
 

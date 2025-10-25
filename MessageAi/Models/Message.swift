@@ -36,6 +36,11 @@ final class Message {
     var deliveredToUsers: [String] // Array of user IDs who have received message locally
     var isOptimistic: Bool // For optimistic UI updates
 
+    // Translation data
+    var detectedLanguage: String? // ISO 639-1 language code
+    var translatedText: String? // Full message translation
+    var wordTranslationsJSON: String? // JSON-encoded WordTranslation array
+
     init(
         id: String = UUID().uuidString,
         conversationId: String,
@@ -47,7 +52,10 @@ final class Message {
         timestamp: Date = Date(),
         readBy: [String] = [],
         deliveredToUsers: [String] = [],
-        isOptimistic: Bool = false
+        isOptimistic: Bool = false,
+        detectedLanguage: String? = nil,
+        translatedText: String? = nil,
+        wordTranslationsJSON: String? = nil
     ) {
         self.id = id
         self.conversationId = conversationId
@@ -60,6 +68,9 @@ final class Message {
         self.readBy = readBy
         self.deliveredToUsers = deliveredToUsers
         self.isOptimistic = isOptimistic
+        self.detectedLanguage = detectedLanguage
+        self.translatedText = translatedText
+        self.wordTranslationsJSON = wordTranslationsJSON
     }
 
     var messageType: MessageType {
@@ -68,6 +79,22 @@ final class Message {
 
     var messageStatus: MessageStatus {
         MessageStatus(rawValue: status) ?? .sent
+    }
+
+    var wordTranslations: [WordTranslation] {
+        guard let json = wordTranslationsJSON,
+              let data = json.data(using: .utf8) else {
+            return []
+        }
+        return (try? JSONDecoder().decode([WordTranslation].self, from: data)) ?? []
+    }
+
+    func setWordTranslations(_ translations: [WordTranslation]) {
+        let encoder = JSONEncoder()
+        if let data = try? encoder.encode(translations),
+           let json = String(data: data, encoding: .utf8) {
+            self.wordTranslationsJSON = json
+        }
     }
 }
 
@@ -83,6 +110,9 @@ struct MessageDTO: Codable {
     let timestamp: Date
     let readBy: [String]
     let deliveredToUsers: [String]
+    let detectedLanguage: String?
+    let translatedText: String?
+    let wordTranslationsJSON: String?
 
     init(from message: Message) {
         self.id = message.id
@@ -95,6 +125,9 @@ struct MessageDTO: Codable {
         self.timestamp = message.timestamp
         self.readBy = message.readBy
         self.deliveredToUsers = message.deliveredToUsers
+        self.detectedLanguage = message.detectedLanguage
+        self.translatedText = message.translatedText
+        self.wordTranslationsJSON = message.wordTranslationsJSON
     }
 
     func toMessage() -> Message {
@@ -109,7 +142,10 @@ struct MessageDTO: Codable {
             timestamp: timestamp,
             readBy: readBy,
             deliveredToUsers: deliveredToUsers,
-            isOptimistic: false
+            isOptimistic: false,
+            detectedLanguage: detectedLanguage,
+            translatedText: translatedText,
+            wordTranslationsJSON: wordTranslationsJSON
         )
     }
 }
