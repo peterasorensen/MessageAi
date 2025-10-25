@@ -23,6 +23,7 @@ struct ChatView: View {
     @State private var userListener: ListenerRegistration?
     @State private var messagesOffset: CGFloat = 0
     @State private var showAllTimestamps = false
+    @State private var wordTranslationState = WordTranslationState()
     private let maxSwipeOffset: CGFloat = 60
 
     private var messages: [Message] {
@@ -38,10 +39,11 @@ struct ChatView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Messages list
-            ScrollViewReader { proxy in
-                ScrollView {
+        ZStack {
+            VStack(spacing: 0) {
+                // Messages list
+                ScrollViewReader { proxy in
+                    ScrollView {
                     LazyVStack(spacing: 8) {
                         ForEach(messages, id: \.id) { message in
                             MessageRow(
@@ -107,7 +109,24 @@ struct ChatView: View {
                 onTypingChanged: handleTypingChanged
             )
         }
-        .navigationTitle(conversation.otherParticipantName(currentUserId: currentUserId))
+        .environment(wordTranslationState)
+
+        // Word tooltip overlay (shown above all other content)
+        if let wordTranslation = wordTranslationState.selectedWordTranslation {
+            WordTooltipOverlay(
+                wordTranslation: wordTranslation,
+                wordPosition: wordTranslationState.wordPosition,
+                onDismiss: {
+                    wordTranslationState.dismissWord()
+                },
+                onShowDetails: {
+                    wordTranslationState.showDetailedView = true
+                }
+            )
+            .transition(.opacity)
+        }
+    }
+    .navigationTitle(conversation.otherParticipantName(currentUserId: currentUserId))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -150,6 +169,17 @@ struct ChatView: View {
                 authService: authService,
                 messageService: messageService
             )
+        }
+        .sheet(isPresented: $wordTranslationState.showDetailedView) {
+            if let wordTranslation = wordTranslationState.selectedWordTranslation,
+               let targetLang = wordTranslationState.selectedTargetLanguage,
+               let fluentLang = wordTranslationState.selectedFluentLanguage {
+                DetailedTranslationView(
+                    word: wordTranslation.originalWord,
+                    sourceLanguage: targetLang,
+                    targetLanguage: fluentLang
+                )
+            }
         }
         .onAppear {
             messageService.activeConversationId = conversation.id

@@ -625,6 +625,7 @@ class MessageService {
 
     // MARK: - Local Storage
 
+    @MainActor
     private func saveToLocal(conversation: Conversation) {
         // Check if conversation already exists in SwiftData
         let conversationId = conversation.id
@@ -651,6 +652,7 @@ class MessageService {
         try? modelContext.save()
     }
 
+    @MainActor
     private func saveToLocal(message: Message) {
         // Check if message already exists in SwiftData
         let messageId = message.id
@@ -741,43 +743,75 @@ class MessageService {
         print("🌍 Analyzing message for translation...")
 
         do {
-            let result = try await translationService.analyzeMessage(
+            // First, translate the message to target language (if needed)
+            let translationResult = try await translationService.analyzeMessage(
                 messageText: message.content,
                 targetLanguage: targetLanguage,
+                fluentLanguage: fluentLanguage
+            )
+
+            let detectedLanguage = translationResult.detectedLanguage
+            let translatedText = translationResult.fullTranslation
+
+            // Now analyze the TARGET LANGUAGE text for word-by-word learning
+            // This gives us word translations from target language → fluent language
+            let textToAnalyze = detectedLanguage == targetLanguage ? message.content : translatedText
+
+            print("📚 Analyzing \(targetLanguage) text for learning: \(textToAnalyze.prefix(30))...")
+
+            let learningResult = try await translationService.analyzeMessage(
+                messageText: textToAnalyze,
+                targetLanguage: fluentLanguage, // Translate back to fluent language for understanding
                 fluentLanguage: fluentLanguage
             )
 
             // Update message with translation data
             await MainActor.run {
                 if let index = self.messages[conversationId]?.firstIndex(where: { $0.id == messageId }) {
-                    self.messages[conversationId]?[index].detectedLanguage = result.detectedLanguage
-                    self.messages[conversationId]?[index].translatedText = result.fullTranslation
-                    self.messages[conversationId]?[index].setWordTranslations(result.wordTranslations)
+                    self.messages[conversationId]?[index].detectedLanguage = detectedLanguage
+                    self.messages[conversationId]?[index].translatedText = translatedText
+                    // Word translations are for the target language words
+                    self.messages[conversationId]?[index].setWordTranslations(learningResult.wordTranslations)
 
-                    print("✅ Translation complete: \(result.detectedLanguage) → \(targetLanguage)")
+                    print("✅ Translation complete: \(detectedLanguage) → \(targetLanguage)")
+                    print("✅ Learning words ready: \(learningResult.wordTranslations.count) words")
                 }
             }
 
-            // Save translation to Firestore
+            // Save translation to Firestore (only if message exists)
             let encoder = JSONEncoder()
-            if let wordTranslationsData = try? encoder.encode(result.wordTranslations),
+            if let wordTranslationsData = try? encoder.encode(learningResult.wordTranslations),
                let wordTranslationsJSON = String(data: wordTranslationsData, encoding: .utf8) {
-                let updates: [String: Any] = [
-                    "detectedLanguage": result.detectedLanguage,
-                    "translatedText": result.fullTranslation,
-                    "wordTranslationsJSON": wordTranslationsJSON
-                ]
 
-                try? await db.collection("conversations")
+                // Check if message exists in Firestore before updating
+                let messageRef = db.collection("conversations")
                     .document(conversationId)
                     .collection("messages")
                     .document(messageId)
-                    .updateData(updates)
+
+                do {
+                    let snapshot = try await messageRef.getDocument()
+                    if snapshot.exists {
+                        let updates: [String: Any] = [
+                            "detectedLanguage": detectedLanguage,
+                            "translatedText": translatedText,
+                            "wordTranslationsJSON": wordTranslationsJSON
+                        ]
+                        try await messageRef.updateData(updates)
+                        print("✅ Translation saved to Firestore")
+                    } else {
+                        print("⏳ Message not yet in Firestore, will sync later")
+                    }
+                } catch {
+                    print("⚠️ Could not save translation to Firestore: \(error.localizedDescription)")
+                }
             }
 
             // Update local storage
-            if let updatedMessage = messages[conversationId]?.first(where: { $0.id == messageId }) {
-                saveToLocal(message: updatedMessage)
+            await MainActor.run {
+                if let updatedMessage = messages[conversationId]?.first(where: { $0.id == messageId }) {
+                    saveToLocal(message: updatedMessage)
+                }
             }
 
         } catch {

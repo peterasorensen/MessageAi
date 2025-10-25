@@ -8,7 +8,7 @@
 import Foundation
 
 // Matches the structure returned by analyzeMessage Cloud Function
-struct WordTranslation: Codable, Identifiable {
+struct WordTranslation: Codable, Identifiable, Equatable {
     let id: String
     let originalWord: String
     let translation: String
@@ -65,7 +65,7 @@ struct WordBreakdown: Codable {
     let conjugation: String
 }
 
-struct MeaningContext: Codable, Identifiable {
+struct MeaningContext: Codable, Identifiable, Equatable {
     let id: String
     let meaning: String
     let context: String
@@ -88,7 +88,7 @@ struct MeaningContext: Codable, Identifiable {
     }
 }
 
-struct ExampleSentence: Codable, Identifiable {
+struct ExampleSentence: Codable, Identifiable, Equatable {
     let id: String
     let original: String
     let translation: String

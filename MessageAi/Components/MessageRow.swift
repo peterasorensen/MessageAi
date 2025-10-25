@@ -8,6 +8,8 @@
 import SwiftUI
 
 struct MessageRow: View {
+    @Environment(AuthService.self) private var authService
+
     let message: Message
     let isFromCurrentUser: Bool
     let showSenderName: Bool
@@ -19,8 +21,6 @@ struct MessageRow: View {
     let autoTranslateEnabled: Bool
 
     @State private var showOriginal = false
-    @State private var selectedWord: WordTranslation?
-    @State private var wordPopoverPosition: CGPoint?
 
     private var actualStatus: MessageStatus {
         // For optimistic messages, use their status
@@ -78,26 +78,37 @@ struct MessageRow: View {
                             .padding(.leading, 12)
                     }
 
-                    // Message bubble
-                    VStack(alignment: isFromCurrentUser ? .trailing : .leading, spacing: 4) {
-                        Text(displayedText)
-                            .font(.system(size: 16))
-                            .foregroundStyle(isFromCurrentUser ? .white : .primary)
+                    // Message bubble with popover support
+                    ZStack {
+                        VStack(alignment: isFromCurrentUser ? .trailing : .leading, spacing: 4) {
+                            // Message bubble - doesn't change size
+                            TappableMessageText(
+                                text: textForWordTapping,
+                                displayText: displayedText,
+                                originalText: hasTranslation ? message.content : nil,
+                                wordTranslations: message.wordTranslations,
+                                detectedLanguage: message.detectedLanguage,
+                                targetLanguage: authService.currentUser?.targetLanguage,
+                                fluentLanguage: authService.currentUser?.fluentLanguage,
+                                isFromCurrentUser: isFromCurrentUser,
+                                showOriginal: showOriginal
+                            )
                             .padding(.horizontal, 14)
                             .padding(.vertical, 10)
                             .background(messageBubbleBackground)
                             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
 
-                        // Translation toggle (if translation available)
-                        if hasTranslation {
-                            Button {
-                                showOriginal.toggle()
-                            } label: {
-                                Text(showOriginal ? "See translation" : "See original")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                            // Translation toggle (if translation available)
+                            if hasTranslation {
+                                Button {
+                                    showOriginal.toggle()
+                                } label: {
+                                    Text(showOriginal ? "Hide original" : "Show original")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.horizontal, 14)
                             }
-                            .padding(.horizontal, 14)
                         }
                     }
 
@@ -133,6 +144,19 @@ struct MessageRow: View {
     private var displayedText: String {
         if hasTranslation && autoTranslateEnabled && !showOriginal {
             return message.translatedText ?? message.content
+        }
+        return message.content
+    }
+
+    // Text that contains the word translations (target language text for learning)
+    private var textForWordTapping: String {
+        // If message was translated to target language, use the translation
+        // Otherwise use the original content (it's already in target language)
+        if let detectedLang = message.detectedLanguage,
+           let targetLang = authService.currentUser?.targetLanguage,
+           detectedLang != targetLang,
+           let translated = message.translatedText {
+            return translated
         }
         return message.content
     }
