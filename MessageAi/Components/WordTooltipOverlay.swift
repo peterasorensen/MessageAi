@@ -103,7 +103,7 @@ struct WordTooltipOverlay: View {
                     }
                 }
                 .frame(width: 280)
-                .offset(x: calculateTooltipX(in: geometry), y: calculateTooltipY(in: geometry))
+                .position(x: calculateTooltipX(in: geometry), y: calculateTooltipY(in: geometry))
                 .transition(.scale(scale: 0.8).combined(with: .opacity))
                 .onAppear {
                     updateTooltipPosition(geometry: geometry)
@@ -121,11 +121,11 @@ struct WordTooltipOverlay: View {
         let screenWidth = geometry.size.width
 
         // Try to center tooltip on word, but keep it on screen
-        var x = wordPosition.midX - screenWidth / 2
+        var x = wordPosition.midX
 
         // Keep tooltip within screen bounds (with 16pt padding)
-        let minX = -screenWidth / 2 + tooltipWidth / 2 + 16
-        let maxX = screenWidth / 2 - tooltipWidth / 2 - 16
+        let minX = tooltipWidth / 2 + 16
+        let maxX = screenWidth - tooltipWidth / 2 - 16
 
         x = min(max(x, minX), maxX)
 
@@ -137,27 +137,20 @@ struct WordTooltipOverlay: View {
         let arrowHeight: CGFloat = 10
         let spacing: CGFloat = 2
 
-        // We're using .offset() which offsets from the view's natural center position
-        // The VStack will be centered by default, so we need to calculate offset from center
-        let screenCenterY = geometry.size.height / 2
-
         if tooltipPosition == .below {
             // Position tooltip below word
-            // Calculate where tooltip center should be: word bottom + arrow + spacing + half tooltip
-            let desiredTooltipCenterY = wordPosition.maxY - arrowHeight - spacing
-            // Convert to offset from screen center
-            return desiredTooltipCenterY - screenCenterY
+            // Tooltip center Y = word bottom + arrow + spacing (uses your working calculation)
+            return wordPosition.maxY - arrowHeight - spacing
         } else {
             // Position tooltip above word
-            // Calculate where tooltip center should be: word top - arrow - spacing - half tooltip
-            let desiredTooltipCenterY = wordPosition.minY - arrowHeight - spacing - tooltipHeight
-            // Convert to offset from screen center
-            return desiredTooltipCenterY - screenCenterY
+            // Tooltip center Y = word top - arrow - spacing - tooltip height (uses your working calculation)
+            return wordPosition.minY - arrowHeight - spacing - tooltipHeight
         }
     }
 
     private func calculateArrowOffset(in geometry: GeometryProxy) -> CGFloat {
-        let tooltipCenterX = calculateTooltipX(in: geometry) + geometry.size.width / 2
+        // Arrow offset from tooltip center to point at word
+        let tooltipCenterX = calculateTooltipX(in: geometry)
         return wordPosition.midX - tooltipCenterX
     }
 
