@@ -37,7 +37,7 @@ struct LoginView: View {
                         .foregroundStyle(.white)
                         .shadow(color: .black.opacity(0.2), radius: 10)
 
-                    Text("MessageAi")
+                    Text("ImmersiveAi")
                         .font(.system(size: 36, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                 }

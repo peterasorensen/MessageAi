@@ -27,11 +27,10 @@ struct MessageAiApp: App {
             Message.self
         ])
 
-        // Use in-memory store to avoid migration issues with Array types
-        // Firestore is the source of truth, so we don't need persistent local storage
+        // Use persistent storage for offline message access
         let modelConfiguration = ModelConfiguration(
             schema: schema,
-            isStoredInMemoryOnly: true
+            isStoredInMemoryOnly: false
         )
 
         do {
