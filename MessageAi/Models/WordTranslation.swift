@@ -47,8 +47,41 @@ struct WordTranslation: Codable, Identifiable, Equatable {
 // Response structure from analyzeMessage Cloud Function
 struct MessageAnalysisResult: Codable {
     let detectedLanguage: String
+    let detectedCountry: String
     let fullTranslation: String
+    let sentenceExplanation: String
     let wordTranslations: [WordTranslation]
+    let slangAndIdioms: [SlangIdiom]
+}
+
+// Slang and idiom information
+struct SlangIdiom: Codable, Identifiable, Equatable {
+    let id: String
+    let phrase: String
+    let literalMeaning: String
+    let actualMeaning: String
+    let culturalContext: String
+
+    init(phrase: String, literalMeaning: String, actualMeaning: String, culturalContext: String) {
+        self.id = UUID().uuidString
+        self.phrase = phrase
+        self.literalMeaning = literalMeaning
+        self.actualMeaning = actualMeaning
+        self.culturalContext = culturalContext
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = (try? container.decode(String.self, forKey: .id)) ?? UUID().uuidString
+        self.phrase = try container.decode(String.self, forKey: .phrase)
+        self.literalMeaning = try container.decode(String.self, forKey: .literalMeaning)
+        self.actualMeaning = try container.decode(String.self, forKey: .actualMeaning)
+        self.culturalContext = try container.decode(String.self, forKey: .culturalContext)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, phrase, literalMeaning, actualMeaning, culturalContext
+    }
 }
 
 // Response structure from expandWordContext Cloud Function

@@ -116,7 +116,7 @@ exports.sendNotificationHTTP = functions.https.onCall(async (data, context) => {
 
 /**
  * Analyze Message - Unified translation function
- * Returns: detected language, full translation, and word-by-word translations
+ * Returns: detected language, full translation, word-by-word translations, slang/idioms, and cultural context
  * Uses OpenAI GPT-4o with structured outputs for consistent parsing
  */
 exports.analyzeMessage = functions.https.onCall(async (data, context) => {
@@ -125,7 +125,7 @@ exports.analyzeMessage = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('unauthenticated', 'Must be authenticated');
   }
 
-  const { messageText, targetLanguage, fluentLanguage } = data;
+  const { messageText, targetLanguage, fluentLanguage, userCountry } = data;
 
   if (!messageText || !targetLanguage || !fluentLanguage) {
     throw new functions.https.HttpsError(
@@ -144,13 +144,21 @@ exports.analyzeMessage = functions.https.onCall(async (data, context) => {
 1. Detected language (ISO 639-1 code like 'en', 'es', 'fr')
 2. Full translation of the message into ${targetLanguage}
 3. Word-by-word or phrase-by-phrase translations into ${fluentLanguage}
+4. Detailed explanation of the full sentence meaning/context
+5. Any slang, idioms, or cultural expressions found in the message
+6. Detected country/region if applicable (e.g., 'MX' for Mexican Spanish, 'ES' for Spain Spanish)
 
 For wordTranslations array:
 - Break down the message into meaningful words/phrases
 - Provide startIndex and endIndex for each word in the original text
 - Include part of speech (noun, verb, adjective, etc.)
 - Add brief context explaining usage
-- Preserve order from the original message`,
+- Preserve order from the original message
+
+For slangAndIdioms array:
+- Identify any colloquial expressions, slang, idioms, or cultural references
+- Explain their literal vs. actual meaning
+- Provide context for when they're used${userCountry ? `\n- Consider the user's region (${userCountry}) for relevance` : ''}`,
         },
         {
           role: 'user',
@@ -169,9 +177,17 @@ For wordTranslations array:
                 type: 'string',
                 description: 'ISO 639-1 language code',
               },
+              detectedCountry: {
+                type: 'string',
+                description: 'Detected country/region code if applicable (e.g., MX, ES, AR)',
+              },
               fullTranslation: {
                 type: 'string',
                 description: `Full message translation in ${targetLanguage}`,
+              },
+              sentenceExplanation: {
+                type: 'string',
+                description: 'Detailed explanation of the full sentence meaning, context, and usage',
               },
               wordTranslations: {
                 type: 'array',
@@ -207,8 +223,34 @@ For wordTranslations array:
                   additionalProperties: false,
                 },
               },
+              slangAndIdioms: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    phrase: {
+                      type: 'string',
+                      description: 'The slang or idiomatic expression',
+                    },
+                    literalMeaning: {
+                      type: 'string',
+                      description: 'Word-for-word literal translation',
+                    },
+                    actualMeaning: {
+                      type: 'string',
+                      description: 'What it actually means in context',
+                    },
+                    culturalContext: {
+                      type: 'string',
+                      description: 'Cultural background and when it is typically used',
+                    },
+                  },
+                  required: ['phrase', 'literalMeaning', 'actualMeaning', 'culturalContext'],
+                  additionalProperties: false,
+                },
+              },
             },
-            required: ['detectedLanguage', 'fullTranslation', 'wordTranslations'],
+            required: ['detectedLanguage', 'detectedCountry', 'fullTranslation', 'sentenceExplanation', 'wordTranslations', 'slangAndIdioms'],
             additionalProperties: false,
           },
         },
@@ -217,7 +259,7 @@ For wordTranslations array:
 
     const result = JSON.parse(completion.choices[0].message.content);
 
-    console.log(`Analyzed message in ${result.detectedLanguage} with ${result.wordTranslations.length} translations`);
+    console.log(`Analyzed message in ${result.detectedLanguage} (${result.detectedCountry}) with ${result.wordTranslations.length} translations and ${result.slangAndIdioms.length} slang/idioms`);
 
     return result;
   } catch (error) {

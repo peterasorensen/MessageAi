@@ -977,16 +977,27 @@ class MessageService {
 
         print("🌍 Analyzing message for translation...")
 
+        // Set loading state
+        await MainActor.run {
+            if let index = self.messages[conversationId]?.firstIndex(where: { $0.id == messageId }) {
+                self.messages[conversationId]?[index].isTranslationLoading = true
+            }
+        }
+
         do {
             // First, translate the message to target language (if needed)
             let translationResult = try await translationService.analyzeMessage(
                 messageText: message.content,
                 targetLanguage: targetLanguage,
-                fluentLanguage: fluentLanguage
+                fluentLanguage: fluentLanguage,
+                userCountry: nil // Could infer from conversation history in future
             )
 
             let detectedLanguage = translationResult.detectedLanguage
+            let detectedCountry = translationResult.detectedCountry
             let translatedText = translationResult.fullTranslation
+            let sentenceExplanation = translationResult.sentenceExplanation
+            let slangAndIdioms = translationResult.slangAndIdioms
 
             // Now analyze the TARGET LANGUAGE text for word-by-word learning
             // This gives us word translations from target language → fluent language
@@ -997,26 +1008,34 @@ class MessageService {
             let learningResult = try await translationService.analyzeMessage(
                 messageText: textToAnalyze,
                 targetLanguage: fluentLanguage, // Translate back to fluent language for understanding
-                fluentLanguage: fluentLanguage
+                fluentLanguage: fluentLanguage,
+                userCountry: detectedCountry.isEmpty ? nil : detectedCountry
             )
 
             // Update message with translation data
             await MainActor.run {
                 if let index = self.messages[conversationId]?.firstIndex(where: { $0.id == messageId }) {
                     self.messages[conversationId]?[index].detectedLanguage = detectedLanguage
+                    self.messages[conversationId]?[index].detectedCountry = detectedCountry
                     self.messages[conversationId]?[index].translatedText = translatedText
+                    self.messages[conversationId]?[index].sentenceExplanation = sentenceExplanation
+                    self.messages[conversationId]?[index].setSlangAndIdioms(slangAndIdioms)
                     // Word translations are for the target language words
                     self.messages[conversationId]?[index].setWordTranslations(learningResult.wordTranslations)
+                    self.messages[conversationId]?[index].isTranslationLoading = false
 
-                    print("✅ Translation complete: \(detectedLanguage) → \(targetLanguage)")
+                    print("✅ Translation complete: \(detectedLanguage) (\(detectedCountry)) → \(targetLanguage)")
                     print("✅ Learning words ready: \(learningResult.wordTranslations.count) words")
+                    print("✅ Slang/idioms found: \(slangAndIdioms.count)")
                 }
             }
 
             // Save translation to Firestore (only if message exists)
             let encoder = JSONEncoder()
             if let wordTranslationsData = try? encoder.encode(learningResult.wordTranslations),
-               let wordTranslationsJSON = String(data: wordTranslationsData, encoding: .utf8) {
+               let wordTranslationsJSON = String(data: wordTranslationsData, encoding: .utf8),
+               let slangAndIdiomsData = try? encoder.encode(slangAndIdioms),
+               let slangAndIdiomsJSON = String(data: slangAndIdiomsData, encoding: .utf8) {
 
                 // Check if message exists in Firestore before updating
                 let messageRef = db.collection("conversations")
@@ -1029,8 +1048,12 @@ class MessageService {
                     if snapshot.exists {
                         let updates: [String: Any] = [
                             "detectedLanguage": detectedLanguage,
+                            "detectedCountry": detectedCountry,
                             "translatedText": translatedText,
-                            "wordTranslationsJSON": wordTranslationsJSON
+                            "sentenceExplanation": sentenceExplanation,
+                            "wordTranslationsJSON": wordTranslationsJSON,
+                            "slangAndIdiomsJSON": slangAndIdiomsJSON,
+                            "isTranslationLoading": false
                         ]
                         try await messageRef.updateData(updates)
                         print("✅ Translation saved to Firestore")
@@ -1051,6 +1074,13 @@ class MessageService {
 
         } catch {
             print("❌ Translation error: \(error.localizedDescription)")
+
+            // Clear loading state on error
+            await MainActor.run {
+                if let index = self.messages[conversationId]?.firstIndex(where: { $0.id == messageId }) {
+                    self.messages[conversationId]?[index].isTranslationLoading = false
+                }
+            }
         }
     }
 }

@@ -22,7 +22,8 @@ class TranslationService {
     func analyzeMessage(
         messageText: String,
         targetLanguage: String,
-        fluentLanguage: String
+        fluentLanguage: String,
+        userCountry: String? = nil
     ) async throws -> MessageAnalysisResult {
         // Check cache first
         if let cached = cache.getCachedMessageAnalysis(messageText: messageText) {
@@ -33,11 +34,15 @@ class TranslationService {
         await MainActor.run { isLoading = true }
 
         do {
-            let data: [String: Any] = [
+            var data: [String: Any] = [
                 "messageText": messageText,
                 "targetLanguage": targetLanguage,
                 "fluentLanguage": fluentLanguage
             ]
+
+            if let country = userCountry {
+                data["userCountry"] = country
+            }
 
             let result = try await functions.httpsCallable("analyzeMessage").call(data)
 

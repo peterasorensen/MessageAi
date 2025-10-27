@@ -22,6 +22,7 @@ struct MessageRow: View {
     let autoTranslateEnabled: Bool
 
     @State private var showOriginal = false
+    @State private var showTranslationModal = false
 
     private var actualStatus: MessageStatus {
         // For optimistic messages, use their status
@@ -140,6 +141,9 @@ struct MessageRow: View {
         }
         .padding(.vertical, 2)
         .transition(.scale.combined(with: .opacity))
+        .sheet(isPresented: $showTranslationModal) {
+            MessageTranslationModal(message: message)
+        }
     }
 
     // MARK: - Subviews
@@ -153,18 +157,42 @@ struct MessageRow: View {
                     AudioMessageBubble(message: message)
                 } else {
                     // Regular text message bubble
-                    TappableMessageText(
-                        text: textForWordTapping,
-                        displayText: displayedText,
-                        originalText: hasTranslation ? message.content : nil,
-                        wordTranslations: message.wordTranslations,
-                        detectedLanguage: message.detectedLanguage,
-                        targetLanguage: authService.currentUser?.targetLanguage,
-                        fluentLanguage: authService.currentUser?.fluentLanguage,
-                        isFromCurrentUser: isFromCurrentUser,
-                        showOriginal: showOriginal,
-                        message: message
-                    )
+                    HStack(spacing: 0) {
+                        TappableMessageText(
+                            text: textForWordTapping,
+                            displayText: displayedText,
+                            originalText: hasTranslation ? message.content : nil,
+                            wordTranslations: message.wordTranslations,
+                            detectedLanguage: message.detectedLanguage,
+                            targetLanguage: authService.currentUser?.targetLanguage,
+                            fluentLanguage: authService.currentUser?.fluentLanguage,
+                            isFromCurrentUser: isFromCurrentUser,
+                            showOriginal: showOriginal,
+                            message: message
+                        )
+
+                        // Translation loading indicator or expand button
+                        if !isFromCurrentUser {
+                            if message.isTranslationLoading {
+                                ProgressView()
+                                    .scaleEffect(0.7)
+                                    .padding(.leading, 8)
+                            } else if hasTranslation {
+                                Button(action: {
+                                    showTranslationModal = true
+                                }) {
+                                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.secondary)
+                                        .padding(6)
+                                        .background(Color(.systemBackground).opacity(0.8))
+                                        .clipShape(Circle())
+                                }
+                                .buttonStyle(.plain)
+                                .padding(.leading, 8)
+                            }
+                        }
+                    }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                     .background(messageBubbleBackground)
