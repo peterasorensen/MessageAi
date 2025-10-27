@@ -121,7 +121,8 @@ struct ChatView: View {
                 },
                 onShowDetails: {
                     wordTranslationState.showDetailedView = true
-                }
+                },
+                message: wordTranslationState.selectedMessage
             )
             .transition(.opacity)
         }

@@ -135,7 +135,7 @@ exports.analyzeMessage = functions.https.onCall(async (data, context) => {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-5-mini-2025-08-07',
+      model: 'gpt-4o-mini-2024-07-18',
       messages: [
         {
           role: 'system',
@@ -247,7 +247,7 @@ exports.expandWordContext = functions.https.onCall(async (data, context) => {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-5-mini-2025-08-07',
+      model: 'gpt-4o-mini-2024-07-18',
       messages: [
         {
           role: 'system',
@@ -620,3 +620,57 @@ function getAIPalName(personaType) {
   };
   return names[personaType] || 'AI Pal';
 }
+
+/**
+ * Generate TTS Audio - Convert text to speech using OpenAI gpt-4o-mini-tts
+ * Returns base64-encoded MP3 audio data for client-side caching
+ */
+exports.generateTTS = functions.https.onCall(async (data, context) => {
+  // Check authentication
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be authenticated');
+  }
+
+  const { text, language, voice } = data;
+
+  if (!text) {
+    throw new functions.https.HttpsError('invalid-argument', 'text is required');
+  }
+
+  if (!voice) {
+    throw new functions.https.HttpsError('invalid-argument', 'voice is required');
+  }
+
+  // Validate voice
+  const validVoices = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'onyx', 'nova', 'sage', 'shimmer', 'verse'];
+  if (!validVoices.includes(voice)) {
+    throw new functions.https.HttpsError('invalid-argument', `Invalid voice. Must be one of: ${validVoices.join(', ')}`);
+  }
+
+  try {
+    console.log(`🎤 Generating TTS for text (${text.length} chars) in language ${language || 'unknown'} with voice ${voice}`);
+
+    const response = await openai.audio.speech.create({
+      model: 'gpt-4o-mini-tts',
+      voice: voice,
+      input: text,
+      response_format: 'mp3',
+    });
+
+    // Convert response to buffer
+    const buffer = Buffer.from(await response.arrayBuffer());
+
+    // Convert to base64 for transmission
+    const base64Audio = buffer.toString('base64');
+
+    console.log(`✅ Generated TTS audio: ${buffer.length} bytes (${base64Audio.length} base64 chars)`);
+
+    return {
+      audioData: base64Audio,
+      voice: voice,
+    };
+  } catch (error) {
+    console.error('❌ Error generating TTS:', error);
+    throw new functions.https.HttpsError('internal', error.message);
+  }
+});

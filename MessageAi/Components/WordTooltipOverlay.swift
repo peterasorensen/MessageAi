@@ -8,10 +8,14 @@
 import SwiftUI
 
 struct WordTooltipOverlay: View {
+    @Environment(AuthService.self) private var authService
+    @Environment(TTSService.self) private var ttsService
+
     let wordTranslation: WordTranslation
     let wordPosition: CGRect
     let onDismiss: () -> Void
     let onShowDetails: () -> Void
+    let message: Message? // Optional message for caching word audio
 
     @State private var tooltipPosition: TooltipPosition = .below
 
@@ -45,13 +49,32 @@ struct WordTooltipOverlay: View {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(alignment: .top) {
                             VStack(alignment: .leading, spacing: 6) {
-                                Text(wordTranslation.originalWord)
+                                // Translation (larger, blue) with audio button
+                                HStack(spacing: 8) {
+                                    Text(wordTranslation.originalWord)
                                     .font(.headline)
                                     .foregroundStyle(.primary)
-                                Text(wordTranslation.translation)
+
+                                    // TTS play button for word - right next to translation
+                                    Button {
+                                        Task {
+                                            await playWordAudio()
+                                        }
+                                    } label: {
+                                        Image(systemName: isPlayingWord ? "stop.circle.fill" : "speaker.wave.2.fill")
+                                            .font(.system(size: 14))
+                                            .foregroundStyle(.blue)
+                                            .symbolEffect(.pulse, options: .repeating, isActive: isPlayingWord)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+
+                            // Original word (smaller, secondary)
+                            Text(wordTranslation.translation)
                                     .font(.title3)
                                     .foregroundStyle(.blue)
                                     .fontWeight(.semibold)
+                            
                             }
                             Spacer(minLength: 12)
                             Button {
@@ -159,6 +182,37 @@ struct WordTooltipOverlay: View {
         let screenMid = geometry.size.height / 2
         let wordMid = wordPosition.midY
         tooltipPosition = wordMid < screenMid ? .below : .above
+    }
+
+    // MARK: - TTS Playback
+
+    private var isPlayingWord: Bool {
+        ttsService.isPlaying && ttsService.playingWord == wordTranslation.originalWord
+    }
+
+    private func playWordAudio() async {
+        // Stop if currently playing this word
+        if isPlayingWord {
+            ttsService.stopAudio()
+            return
+        }
+
+        // Get target language for pronunciation
+        let targetLanguage = authService.currentUser?.targetLanguage ?? "en"
+
+        // Get user's preferred voice
+        let voice = authService.currentUser?.preferredTTSVoice ?? "nova"
+
+        do {
+            try await ttsService.playWordAudio(
+                word: wordTranslation.originalWord,
+                language: targetLanguage,
+                voice: voice,
+                message: message
+            )
+        } catch {
+            print("❌ Failed to play word audio: \(error)")
+        }
     }
 }
 

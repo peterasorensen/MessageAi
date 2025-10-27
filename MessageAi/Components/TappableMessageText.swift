@@ -19,6 +19,7 @@ struct TappableMessageText: View {
     let fluentLanguage: String?
     let isFromCurrentUser: Bool
     let showOriginal: Bool // If true, showing original alongside translation
+    let message: Message? // For TTS audio caching
 
     var body: some View {
         VStack(alignment: isFromCurrentUser ? .trailing : .leading, spacing: 6) {
@@ -62,7 +63,8 @@ struct TappableMessageText: View {
                                         translation,
                                         at: geometry.frame(in: .global),
                                         targetLanguage: targetLanguage,
-                                        fluentLanguage: fluentLanguage
+                                        fluentLanguage: fluentLanguage,
+                                        message: message
                                     )
                                 }
                             }

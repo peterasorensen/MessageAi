@@ -31,6 +31,9 @@ final class User {
     var aiPersonaCustom: String? // Custom persona description (max 200 chars) if type is "custom"
     var aiPalConversationId: String? // Conversation ID for the AI pal chat
 
+    // TTS preferences
+    var preferredTTSVoice: String? // User's preferred TTS voice (alloy, ash, ballad, coral, echo, fable, onyx, nova, sage, shimmer, verse)
+
     init(
         id: String,
         displayName: String,
@@ -47,7 +50,8 @@ final class User {
         needsOnboarding: Bool = true,
         aiPersonaType: String? = nil,
         aiPersonaCustom: String? = nil,
-        aiPalConversationId: String? = nil
+        aiPalConversationId: String? = nil,
+        preferredTTSVoice: String? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -65,6 +69,7 @@ final class User {
         self.aiPersonaType = aiPersonaType
         self.aiPersonaCustom = aiPersonaCustom
         self.aiPalConversationId = aiPalConversationId
+        self.preferredTTSVoice = preferredTTSVoice
     }
 }
 
@@ -86,6 +91,7 @@ struct UserDTO: Codable {
     let aiPersonaType: String?
     let aiPersonaCustom: String?
     let aiPalConversationId: String?
+    let preferredTTSVoice: String?
 
     init(from user: User) {
         self.id = user.id
@@ -104,6 +110,7 @@ struct UserDTO: Codable {
         self.aiPersonaType = user.aiPersonaType
         self.aiPersonaCustom = user.aiPersonaCustom
         self.aiPalConversationId = user.aiPalConversationId
+        self.preferredTTSVoice = user.preferredTTSVoice
     }
 
     func toUser() -> User {
@@ -123,7 +130,8 @@ struct UserDTO: Codable {
             needsOnboarding: needsOnboarding,
             aiPersonaType: aiPersonaType,
             aiPersonaCustom: aiPersonaCustom,
-            aiPalConversationId: aiPalConversationId
+            aiPalConversationId: aiPalConversationId,
+            preferredTTSVoice: preferredTTSVoice
         )
     }
 }

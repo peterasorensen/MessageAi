@@ -52,11 +52,13 @@ struct MessageAiApp: App {
 struct ContentView: View {
     @State private var authService = AuthService()
     @State private var translationService = TranslationService()
+    @State private var ttsService = TTSService()
 
     var body: some View {
         RootView()
             .environment(authService)
             .environment(translationService)
+            .environment(ttsService)
     }
 }
 

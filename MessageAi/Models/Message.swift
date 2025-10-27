@@ -41,6 +41,11 @@ final class Message {
     var translatedText: String? // Full message translation
     var wordTranslationsJSON: String? // JSON-encoded WordTranslation array
 
+    // TTS audio cache
+    var audioDataBase64: String? // Cached TTS audio for full message (base64-encoded MP3)
+    var cachedVoice: String? // Which voice was used for cached audio (for cache invalidation)
+    var wordAudioCacheJSON: String? // JSON dictionary mapping words to base64 audio
+
     init(
         id: String = UUID().uuidString,
         conversationId: String,
@@ -55,7 +60,10 @@ final class Message {
         isOptimistic: Bool = false,
         detectedLanguage: String? = nil,
         translatedText: String? = nil,
-        wordTranslationsJSON: String? = nil
+        wordTranslationsJSON: String? = nil,
+        audioDataBase64: String? = nil,
+        cachedVoice: String? = nil,
+        wordAudioCacheJSON: String? = nil
     ) {
         self.id = id
         self.conversationId = conversationId
@@ -71,6 +79,9 @@ final class Message {
         self.detectedLanguage = detectedLanguage
         self.translatedText = translatedText
         self.wordTranslationsJSON = wordTranslationsJSON
+        self.audioDataBase64 = audioDataBase64
+        self.cachedVoice = cachedVoice
+        self.wordAudioCacheJSON = wordAudioCacheJSON
     }
 
     var messageType: MessageType {
@@ -94,6 +105,22 @@ final class Message {
         if let data = try? encoder.encode(translations),
            let json = String(data: data, encoding: .utf8) {
             self.wordTranslationsJSON = json
+        }
+    }
+
+    var wordAudioCache: [String: String] {
+        guard let json = wordAudioCacheJSON,
+              let data = json.data(using: .utf8) else {
+            return [:]
+        }
+        return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
+    }
+
+    func setWordAudioCache(_ cache: [String: String]) {
+        let encoder = JSONEncoder()
+        if let data = try? encoder.encode(cache),
+           let json = String(data: data, encoding: .utf8) {
+            self.wordAudioCacheJSON = json
         }
     }
 }
