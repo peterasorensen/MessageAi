@@ -19,13 +19,8 @@ struct LoginView: View {
 
     var body: some View {
         ZStack {
-            // Background gradient
-            LinearGradient(
-                colors: [Color.blue.opacity(0.6), Color.purple.opacity(0.4)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            // Deep ocean background
+            OceanBackgroundView()
 
             VStack(spacing: 0) {
                 Spacer()
@@ -37,9 +32,13 @@ struct LoginView: View {
                         .foregroundStyle(.white)
                         .shadow(color: .black.opacity(0.2), radius: 10)
 
-                    Text("ImmersiveAi")
+                    Text("Lemurs")
                         .font(.system(size: 36, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
+
+                    Text("Language Immersion")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.85))
                 }
                 .padding(.bottom, 60)
 
