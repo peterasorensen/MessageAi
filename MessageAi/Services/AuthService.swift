@@ -18,6 +18,7 @@ class AuthService {
 
     private let db = Firestore.firestore()
     private var authStateListener: AuthStateDidChangeListenerHandle?
+    var aiService: AIService? // Set after initialization to avoid circular dependency
 
     init() {
         setupAuthStateListener()
@@ -130,7 +131,9 @@ class AuthService {
         avatarURL: String? = nil,
         targetLanguage: String? = nil,
         fluentLanguage: String? = nil,
-        autoTranslateEnabled: Bool? = nil
+        autoTranslateEnabled: Bool? = nil,
+        aiPersonaType: String? = nil,
+        aiPersonaCustom: String? = nil
     ) async throws {
         guard let user = currentUser else { return }
 
@@ -152,6 +155,12 @@ class AuthService {
         }
         if let autoTranslateEnabled = autoTranslateEnabled {
             updates["autoTranslateEnabled"] = autoTranslateEnabled
+        }
+        if let aiPersonaType = aiPersonaType {
+            updates["aiPersonaType"] = aiPersonaType
+        }
+        if let aiPersonaCustom = aiPersonaCustom {
+            updates["aiPersonaCustom"] = aiPersonaCustom
         }
         updates["needsOnboarding"] = false
 
@@ -177,7 +186,20 @@ class AuthService {
             if let autoTranslateEnabled = autoTranslateEnabled {
                 self.currentUser?.autoTranslateEnabled = autoTranslateEnabled
             }
+            if let aiPersonaType = aiPersonaType {
+                self.currentUser?.aiPersonaType = aiPersonaType
+            }
+            if let aiPersonaCustom = aiPersonaCustom {
+                self.currentUser?.aiPersonaCustom = aiPersonaCustom
+            }
             self.currentUser?.needsOnboarding = false
+        }
+
+        // Initialize AI pal after onboarding if persona was set
+        if aiPersonaType != nil {
+            Task {
+                try? await aiService?.initializeAIPal()
+            }
         }
     }
 

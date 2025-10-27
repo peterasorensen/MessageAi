@@ -67,6 +67,7 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var messageService: MessageService?
     @State private var notificationService: NotificationService?
+    @State private var aiService: AIService?
     @State private var showOnboarding = false
 
     var body: some View {
@@ -96,6 +97,14 @@ struct RootView: View {
 
             if notificationService == nil {
                 notificationService = NotificationService(authService: authService)
+            }
+
+            // Initialize AI service and wire up dependencies
+            if aiService == nil, let msgService = messageService {
+                aiService = AIService(messageService: msgService, authService: authService)
+                // Wire up bidirectional dependencies
+                authService.aiService = aiService
+                msgService.aiService = aiService
             }
 
             // Check if user needs onboarding

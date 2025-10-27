@@ -216,7 +216,7 @@ struct ConversationRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // Avatar (group or individual)
+            // Avatar (group, AI pal, or individual)
             if conversation.conversationType == .group {
                 // Group avatar
                 ZStack {
@@ -227,6 +227,16 @@ struct ConversationRow: View {
                     Image(systemName: "person.3.fill")
                         .font(.system(size: 24))
                         .foregroundStyle(.blue)
+                }
+            } else if otherUserId == "ai-pal-system" {
+                // AI Pal avatar - show emoji based on persona
+                ZStack {
+                    Circle()
+                        .fill(Color.purple.opacity(0.15))
+                        .frame(width: 54, height: 54)
+
+                    Text("🤖")
+                        .font(.system(size: 28))
                 }
             } else {
                 // Individual avatar

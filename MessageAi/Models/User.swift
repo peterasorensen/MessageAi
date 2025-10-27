@@ -26,6 +26,11 @@ final class User {
     var autoTranslateEnabled: Bool // Auto-translate all incoming messages
     var needsOnboarding: Bool // Show onboarding flow on first launch
 
+    // AI Pal preferences
+    var aiPersonaType: String? // AI personality type: bro, sis, boyfriend, girlfriend, teacher, ai, custom
+    var aiPersonaCustom: String? // Custom persona description (max 200 chars) if type is "custom"
+    var aiPalConversationId: String? // Conversation ID for the AI pal chat
+
     init(
         id: String,
         displayName: String,
@@ -39,7 +44,10 @@ final class User {
         targetLanguage: String? = nil,
         fluentLanguage: String? = nil,
         autoTranslateEnabled: Bool = false,
-        needsOnboarding: Bool = true
+        needsOnboarding: Bool = true,
+        aiPersonaType: String? = nil,
+        aiPersonaCustom: String? = nil,
+        aiPalConversationId: String? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -54,6 +62,9 @@ final class User {
         self.fluentLanguage = fluentLanguage
         self.autoTranslateEnabled = autoTranslateEnabled
         self.needsOnboarding = needsOnboarding
+        self.aiPersonaType = aiPersonaType
+        self.aiPersonaCustom = aiPersonaCustom
+        self.aiPalConversationId = aiPalConversationId
     }
 }
 
@@ -72,6 +83,9 @@ struct UserDTO: Codable {
     let fluentLanguage: String?
     let autoTranslateEnabled: Bool
     let needsOnboarding: Bool
+    let aiPersonaType: String?
+    let aiPersonaCustom: String?
+    let aiPalConversationId: String?
 
     init(from user: User) {
         self.id = user.id
@@ -87,6 +101,9 @@ struct UserDTO: Codable {
         self.fluentLanguage = user.fluentLanguage
         self.autoTranslateEnabled = user.autoTranslateEnabled
         self.needsOnboarding = user.needsOnboarding
+        self.aiPersonaType = user.aiPersonaType
+        self.aiPersonaCustom = user.aiPersonaCustom
+        self.aiPalConversationId = user.aiPalConversationId
     }
 
     func toUser() -> User {
@@ -103,7 +120,10 @@ struct UserDTO: Codable {
             targetLanguage: targetLanguage,
             fluentLanguage: fluentLanguage,
             autoTranslateEnabled: autoTranslateEnabled,
-            needsOnboarding: needsOnboarding
+            needsOnboarding: needsOnboarding,
+            aiPersonaType: aiPersonaType,
+            aiPersonaCustom: aiPersonaCustom,
+            aiPalConversationId: aiPalConversationId
         )
     }
 }

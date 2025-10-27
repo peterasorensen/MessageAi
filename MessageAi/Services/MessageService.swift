@@ -25,6 +25,7 @@ class MessageService {
     private let modelContext: ModelContext
     private let authService: AuthService
     private let translationService: TranslationService
+    var aiService: AIService? // Set after initialization to avoid circular dependency
 
     init(modelContext: ModelContext, authService: AuthService, translationService: TranslationService) {
         self.modelContext = modelContext
@@ -472,6 +473,22 @@ class MessageService {
                     } catch {
                         print("   ⚠️ Failed to send push notification: \(error.localizedDescription)")
                         print("   💡 Make sure Cloud Functions are deployed: firebase deploy --only functions")
+                    }
+                }
+            }
+
+            // Check if this is an AI Pal conversation and trigger response
+            if let aiPalConversationId = authService.currentUser?.aiPalConversationId,
+               aiPalConversationId == conversationId {
+                Task {
+                    do {
+                        // Trigger AI response generation via AIService
+                        if let aiService = aiService {
+                            try await aiService.generateAIResponse(userMessage: content, conversationId: conversationId)
+                            print("   🤖 AI response generated")
+                        }
+                    } catch {
+                        print("   ⚠️ Failed to generate AI response: \(error.localizedDescription)")
                     }
                 }
             }
