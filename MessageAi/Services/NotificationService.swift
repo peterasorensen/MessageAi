@@ -13,8 +13,11 @@ import UserNotifications
 class NotificationService {
     private let db = Firestore.firestore()
     private var fcmToken: String?
+    private weak var authService: AuthService?
 
-    init() {
+    init(authService: AuthService? = nil) {
+        self.authService = authService
+
         // Listen for FCM token updates
         NotificationCenter.default.addObserver(
             self,
@@ -37,6 +40,34 @@ class NotificationService {
         if let token = notification.userInfo?["token"] as? String {
             self.fcmToken = token
             print("📲 FCM Token updated in NotificationService: \(token)")
+
+            // Automatically save to Firestore if user is logged in
+            Task {
+                if let userId = authService?.currentUser?.id {
+                    do {
+                        try await updateFCMToken(userId: userId)
+                    } catch {
+                        print("⚠️ Failed to auto-save FCM token: \(error.localizedDescription)")
+                    }
+                } else {
+                    print("⚠️ No authenticated user yet - token will be saved on login")
+                }
+            }
+        }
+    }
+
+    /// Call this after user logs in to save any pending FCM token
+    func savePendingTokenIfNeeded(userId: String) async {
+        guard let token = fcmToken else {
+            print("⚠️ No FCM token to save")
+            return
+        }
+
+        do {
+            try await updateFCMToken(userId: userId)
+            print("✅ Saved pending FCM token after login")
+        } catch {
+            print("⚠️ Failed to save pending FCM token: \(error.localizedDescription)")
         }
     }
 

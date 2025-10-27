@@ -66,7 +66,7 @@ struct RootView: View {
     @Environment(TranslationService.self) private var translationService
     @Environment(\.scenePhase) private var scenePhase
     @State private var messageService: MessageService?
-    @State private var notificationService = NotificationService()
+    @State private var notificationService: NotificationService?
     @State private var showOnboarding = false
 
     var body: some View {
@@ -94,6 +94,10 @@ struct RootView: View {
                 messageService = MessageService(modelContext: modelContext, authService: authService, translationService: translationService)
             }
 
+            if notificationService == nil {
+                notificationService = NotificationService(authService: authService)
+            }
+
             // Check if user needs onboarding
             if authService.isAuthenticated && authService.currentUser?.needsOnboarding == true {
                 showOnboarding = true
@@ -106,13 +110,21 @@ struct RootView: View {
                     print("✅ User set to ONLINE on app appear")
 
                     // Update FCM token for this user
-                    try? await notificationService.updateFCMToken(userId: userId)
+                    try? await notificationService?.updateFCMToken(userId: userId)
                 }
             }
         }
         .onChange(of: authService.currentUser?.needsOnboarding) { oldValue, newValue in
             if authService.isAuthenticated && newValue == true {
                 showOnboarding = true
+            }
+        }
+        .onChange(of: authService.isAuthenticated) { wasAuthenticated, isAuthenticated in
+            // When user logs in, save pending FCM token
+            if isAuthenticated, let userId = authService.currentUser?.id {
+                Task {
+                    await notificationService?.savePendingTokenIfNeeded(userId: userId)
+                }
             }
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in

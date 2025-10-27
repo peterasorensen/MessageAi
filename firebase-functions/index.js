@@ -25,113 +25,6 @@ exports.sendPushNotificationTrigger = functions.https.onRequest(async (req, res)
 });
 
 /**
- * Alternative: Firestore trigger (may have region issues)
- * Keeping this commented out for reference
- */
-/*
-exports.sendPushNotification = functions.firestore
-  .document('notifications/{notificationId}')
-  .onCreate(async (snap, context) => {
-    try {
-      const notification = snap.data();
-
-      // Check if already sent
-      if (notification.sent) {
-        console.log('Notification already sent, skipping');
-        return null;
-      }
-
-      const recipientIds = notification.recipientIds || [];
-      const title = notification.title || 'New Message';
-      const body = notification.body || '';
-      const conversationId = notification.conversationId;
-      const messageId = notification.messageId;
-
-      console.log(`Sending notification to ${recipientIds.length} recipients`);
-
-      // Fetch FCM tokens for all recipients
-      const tokens = [];
-      for (const userId of recipientIds) {
-        const userDoc = await admin.firestore().collection('users').doc(userId).get();
-        if (userDoc.exists) {
-          const userData = userDoc.data();
-          if (userData.fcmToken) {
-            tokens.push(userData.fcmToken);
-          }
-        }
-      }
-
-      if (tokens.length === 0) {
-        console.log('No FCM tokens found for recipients');
-        // Mark as sent even if no tokens (to avoid retry)
-        await snap.ref.update({ sent: true, sentAt: admin.firestore.FieldValue.serverTimestamp() });
-        return null;
-      }
-
-      console.log(`Found ${tokens.length} FCM tokens`);
-
-      // Prepare FCM message payload
-      const message = {
-        notification: {
-          title: title,
-          body: body,
-          sound: 'default',
-        },
-        data: {
-          conversationId: conversationId,
-          messageId: messageId,
-          type: 'new_message',
-        },
-        apns: {
-          payload: {
-            aps: {
-              badge: 1,
-              sound: 'default',
-              'content-available': 1, // Enable background notification
-            },
-          },
-        },
-        tokens: tokens,
-      };
-
-      // Send notification via FCM
-      const response = await admin.messaging().sendEachForMulticast(message);
-
-      console.log(`Successfully sent ${response.successCount} notifications`);
-      console.log(`Failed to send ${response.failureCount} notifications`);
-
-      // Log any failures
-      if (response.failureCount > 0) {
-        response.responses.forEach((resp, idx) => {
-          if (!resp.success) {
-            console.error(`Failed to send to token ${tokens[idx]}:`, resp.error);
-          }
-        });
-      }
-
-      // Mark notification as sent
-      await snap.ref.update({
-        sent: true,
-        sentAt: admin.firestore.FieldValue.serverTimestamp(),
-        successCount: response.successCount,
-        failureCount: response.failureCount,
-      });
-
-      return null;
-    } catch (error) {
-      console.error('Error sending push notification:', error);
-      // Mark as sent to avoid infinite retry
-      await snap.ref.update({
-        sent: true,
-        sentAt: admin.firestore.FieldValue.serverTimestamp(),
-        error: error.message,
-      });
-      return null;
-    }
-  });
-*/
-
-/**
  * HTTP-triggered function for direct notification sending
  * Call this endpoint from your iOS app if you prefer HTTP requests over Firestore triggers
  */
@@ -148,19 +41,27 @@ exports.sendNotificationHTTP = functions.https.onCall(async (data, context) => {
   }
 
   try {
+    console.log('📥 Fetching FCM tokens for recipients:', recipientIds);
+
     // Fetch FCM tokens
     const tokens = [];
     for (const userId of recipientIds) {
       const userDoc = await admin.firestore().collection('users').doc(userId).get();
       if (userDoc.exists) {
         const userData = userDoc.data();
+        console.log(`User ${userId}: fcmToken = ${userData.fcmToken ? 'EXISTS' : 'MISSING'}`);
         if (userData.fcmToken) {
           tokens.push(userData.fcmToken);
         }
+      } else {
+        console.log(`User ${userId}: document does not exist`);
       }
     }
 
+    console.log(`📱 Found ${tokens.length} FCM tokens`);
+
     if (tokens.length === 0) {
+      console.error('❌ No FCM tokens found for recipients');
       return { success: false, message: 'No FCM tokens found' };
     }
 
@@ -169,7 +70,6 @@ exports.sendNotificationHTTP = functions.https.onCall(async (data, context) => {
       notification: {
         title: title || 'New Message',
         body: body || '',
-        sound: 'default',
       },
       data: {
         conversationId: conversationId || '',
@@ -188,7 +88,19 @@ exports.sendNotificationHTTP = functions.https.onCall(async (data, context) => {
       tokens: tokens,
     };
 
+    console.log('📤 Sending notification to FCM...');
     const response = await admin.messaging().sendEachForMulticast(message);
+
+    console.log(`✅ Success: ${response.successCount}, Failed: ${response.failureCount}`);
+
+    // Log failures
+    if (response.failureCount > 0) {
+      response.responses.forEach((resp, idx) => {
+        if (!resp.success) {
+          console.error(`❌ Failed to send to token ${idx}:`, resp.error);
+        }
+      });
+    }
 
     return {
       success: true,
@@ -196,7 +108,7 @@ exports.sendNotificationHTTP = functions.https.onCall(async (data, context) => {
       failureCount: response.failureCount,
     };
   } catch (error) {
-    console.error('Error in sendNotificationHTTP:', error);
+    console.error('❌ Error in sendNotificationHTTP:', error);
     throw new functions.https.HttpsError('internal', error.message);
   }
 });
