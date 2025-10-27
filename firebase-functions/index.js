@@ -4,6 +4,7 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 const OpenAI = require('openai');
+const { toFile } = require('openai/uploads');
 
 admin.initializeApp();
 
@@ -701,12 +702,10 @@ exports.transcribeAudio = functions.https.onCall(async (data, context) => {
     // Convert base64 to buffer
     const buffer = Buffer.from(audioData, 'base64');
 
-    // Create a temporary file-like object for OpenAI API
-    const audioFile = new File([buffer], 'audio.m4a', { type: 'audio/m4a' });
-
     // Transcribe using Whisper via OpenAI
+    // toFile creates a File-like object that works in Node.js
     const transcription = await openai.audio.transcriptions.create({
-      file: audioFile,
+      file: await toFile(buffer, 'audio.m4a'),
       model: 'whisper-1',
       response_format: 'verbose_json',
       language: undefined, // Auto-detect

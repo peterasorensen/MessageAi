@@ -342,11 +342,25 @@ class MessageService {
                             }
 
                             if let index = self.messages[conversationId]!.firstIndex(where: { $0.id == message.id }) {
-                                // Update existing message (for delivery/read updates)
+                                // Update existing message (for delivery/read updates and transcription)
+                                print("   🔄 LISTENER: Updating message: \(message.id)")
+                                print("      Old readBy: \(self.messages[conversationId]![index].readBy)")
+                                print("      New readBy: \(message.readBy)")
+                                print("      Old readAt: \(self.messages[conversationId]![index].readAt)")
+                                print("      New readAt: \(message.readAt)")
+
                                 self.messages[conversationId]![index].deliveredToUsers = message.deliveredToUsers
                                 self.messages[conversationId]![index].readBy = message.readBy
+                                self.messages[conversationId]![index].readAt = message.readAt
                                 self.messages[conversationId]![index].status = message.status
-                                print("   🔄 Updated message: \(message.id)")
+
+                                // Update transcription fields for audio messages
+                                self.messages[conversationId]![index].audioTranscription = message.audioTranscription
+                                self.messages[conversationId]![index].audioTranscriptionLanguage = message.audioTranscriptionLanguage
+                                self.messages[conversationId]![index].audioTranscriptionJSON = message.audioTranscriptionJSON
+                                self.messages[conversationId]![index].isTranscriptionReady = message.isTranscriptionReady
+
+                                print("   ✅ LISTENER: Message updated successfully")
                             } else {
                                 // New message - add it
                                 self.messages[conversationId]!.append(message)
@@ -619,12 +633,28 @@ class MessageService {
                 "targetLanguage": targetLanguage
             ]
 
+            print("   🎧 Triggering transcription for message: \(optimisticMessage.id)")
+            print("   📊 Audio data size: \(base64Audio.count) characters")
+            print("   🌍 Target language: \(targetLanguage)")
+
             Task {
                 do {
-                    _ = try await functions.httpsCallable("transcribeAudio").call(transcriptionData)
-                    print("   ✅ Transcription triggered")
+                    let result = try await functions.httpsCallable("transcribeAudio").call(transcriptionData)
+                    print("   ✅ Transcription triggered successfully")
+                    if let data = result.data as? [String: Any] {
+                        print("   📝 Transcription result: \(data)")
+                    }
                 } catch {
-                    print("   ⚠️ Failed to trigger transcription: \(error.localizedDescription)")
+                    print("   ❌ Failed to trigger transcription: \(error)")
+                    print("   ❌ Error details: \(error.localizedDescription)")
+
+                    // Update message to show transcription failed
+                    await MainActor.run {
+                        if let index = self.messages[conversationId]?.firstIndex(where: { $0.id == optimisticMessage.id }) {
+                            self.messages[conversationId]?[index].isTranscriptionReady = true
+                            self.messages[conversationId]?[index].audioTranscription = "Transcription failed. Please try again."
+                        }
+                    }
                 }
             }
 
@@ -654,41 +684,41 @@ class MessageService {
 
         print("   📥 Marked message \(messageId) as delivered to \(userId)")
 
-        // Check if all participants have received the message
-        try await cleanupDeliveredMessage(
-            conversationId: conversationId,
-            messageId: messageId,
-            participantIds: participantIds
-        )
+        // Note: Message cleanup only happens after ALL users have read it
+        // This call checks if cleanup is needed, but won't delete until read by all
     }
 
-    private func cleanupDeliveredMessage(conversationId: String, messageId: String, participantIds: [String]) async throws {
+    private func cleanupReadMessage(conversationId: String, messageId: String, participantIds: [String]) async throws {
         let messageRef = db.collection("conversations")
             .document(conversationId)
             .collection("messages")
             .document(messageId)
 
-        // Fetch current message to check delivery status
+        // Fetch current message to check delivery AND read status
         let document = try await messageRef.getDocument()
         guard let data = document.data(),
-              let deliveredToUsers = data["deliveredToUsers"] as? [String] else {
+              let deliveredToUsers = data["deliveredToUsers"] as? [String],
+              let readBy = data["readBy"] as? [String] else {
             return
         }
 
-        // If all participants have received the message, delete from Firestore
+        // Only delete if all participants have BOTH delivered AND read the message
         let deliveredSet = Set(deliveredToUsers)
+        let readBySet = Set(readBy)
         let participantSet = Set(participantIds)
 
-        if deliveredSet == participantSet {
+        if deliveredSet == participantSet && readBySet == participantSet {
             try await messageRef.delete()
-            print("   🗑️ Deleted message \(messageId) from Firestore (all users delivered)")
+            print("   🗑️ Deleted message \(messageId) from Firestore (all users delivered AND read)")
         }
     }
 
     // MARK: - Read Receipts
 
     func markMessagesAsRead(conversationId: String, userId: String) async throws {
-        print("📖 Marking messages as read for conversation: \(conversationId)")
+        print("📖 ==================== MARK MESSAGES AS READ ====================")
+        print("📖 Conversation: \(conversationId)")
+        print("📖 User: \(userId)")
 
         // Update local conversation unread count immediately
         await MainActor.run {
@@ -704,32 +734,86 @@ class MessageService {
         print("   ✅ Firestore unread count set to 0")
 
         // Update readBy for messages
-        guard let messages = messages[conversationId] else { return }
+        guard let messages = messages[conversationId] else {
+            print("   ⚠️ No messages found for conversation: \(conversationId)")
+            return
+        }
+
+        print("   📊 Total messages in conversation: \(messages.count)")
+
+        // Get conversation to access participant IDs for cleanup
+        guard let conversation = conversations.first(where: { $0.id == conversationId }) else {
+            print("   ⚠️ Conversation not found in conversations array")
+            return
+        }
+
+        let readTimestamp = Date()
+        print("   ⏰ Read timestamp: \(readTimestamp)")
+
+        // Filter messages that need to be marked as read
+        let messagesToMark = messages.filter { $0.senderId != userId && !$0.readBy.contains(userId) }
+        print("   📬 Messages to mark as read: \(messagesToMark.count)")
+
+        for msg in messagesToMark {
+            print("      - Message ID: \(msg.id), Sender: \(msg.senderId), Current readBy: \(msg.readBy)")
+        }
 
         // Update local messages immediately
         await MainActor.run {
             for (index, message) in messages.enumerated() where message.senderId != userId && !message.readBy.contains(userId) {
+                print("      🔄 Updating local message: \(message.id)")
                 self.messages[conversationId]?[index].readBy.append(userId)
+                self.messages[conversationId]?[index].readAt[userId] = readTimestamp
+                print("         readBy now: \(self.messages[conversationId]?[index].readBy ?? [])")
 
                 // Also save to local storage
                 if let localMessage = self.messages[conversationId]?[index] {
                     self.saveToLocal(message: localMessage)
+                    print("         ✅ Saved to local storage")
                 }
             }
-            print("   ✅ Updated local readBy arrays")
         }
 
-        // Try to update Firestore (messages might be deleted due to cleanup, that's ok)
-        for message in messages where message.senderId != userId && !message.readBy.contains(userId) {
+        // Update Firestore and trigger cleanup
+        for message in messagesToMark {
+            print("      🔥 Updating Firestore for message: \(message.id)")
             let messageRef = db.collection("conversations")
                 .document(conversationId)
                 .collection("messages")
                 .document(message.id)
 
-            // Use setData with merge to avoid errors if document doesn't exist
-            try? await messageRef.setData(["readBy": FieldValue.arrayUnion([userId])], merge: true)
+            do {
+                // Check if message exists in Firestore first
+                let doc = try await messageRef.getDocument()
+                if doc.exists {
+                    print("         ✅ Message exists in Firestore")
+                    print("         Current data: \(doc.data() ?? [:])")
+
+                    // Use setData with merge to avoid errors if document doesn't exist
+                    try await messageRef.setData([
+                        "readBy": FieldValue.arrayUnion([userId]),
+                        "readAt.\(userId)": readTimestamp
+                    ], merge: true)
+                    print("         ✅ Updated readBy and readAt in Firestore")
+
+                    // Verify update
+                    let updatedDoc = try await messageRef.getDocument()
+                    print("         Updated data: \(updatedDoc.data() ?? [:])")
+                } else {
+                    print("         ⚠️ Message does NOT exist in Firestore (already deleted?)")
+                }
+            } catch {
+                print("         ❌ Error updating Firestore: \(error)")
+            }
+
+            // Check if message can be cleaned up now that it's been read
+            try? await cleanupReadMessage(
+                conversationId: conversationId,
+                messageId: message.id,
+                participantIds: conversation.participantIds
+            )
         }
-        print("   ✅ Attempted to update Firestore readBy (if messages exist)")
+        print("📖 ==================== MARK MESSAGES AS READ COMPLETE ====================")
     }
 
     // MARK: - Typing Indicators
@@ -817,6 +901,7 @@ class MessageService {
             existingMessage.content = message.content
             existingMessage.status = message.status
             existingMessage.readBy = message.readBy
+            existingMessage.readAt = message.readAt
             existingMessage.deliveredToUsers = message.deliveredToUsers
             existingMessage.isOptimistic = false // No longer optimistic once saved
         } else {

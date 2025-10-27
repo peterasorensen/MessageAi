@@ -26,29 +26,39 @@ struct MessageRow: View {
     private var actualStatus: MessageStatus {
         // For optimistic messages, use their status
         if message.isOptimistic {
+            print("🎨 MessageRow[\(message.id.prefix(8))]: optimistic, status=\(message.messageStatus)")
             return message.messageStatus
         }
 
         // Check read status first - but only if OTHER users (not sender) have read it
         let readByOthers = message.readBy.filter { $0 != message.senderId }
+        print("🎨 MessageRow[\(message.id.prefix(8))]: readBy=\(message.readBy), readByOthers=\(readByOthers), readAt=\(message.readAt)")
+
         if !readByOthers.isEmpty {
+            print("🎨 MessageRow[\(message.id.prefix(8))]: status=READ (others have read)")
             return .read
         }
 
         // In group chats (3+ participants), skip delivered status
         // Go directly from sent to read (shown as profile pictures)
         if totalParticipants > 2 {
+            print("🎨 MessageRow[\(message.id.prefix(8))]: status=SENT (group chat, waiting for read)")
             return .sent
         }
 
         // For 1-on-1 chats, check delivery status
         let deliveredCount = message.deliveredToUsers.count
+        print("🎨 MessageRow[\(message.id.prefix(8))]: deliveredCount=\(deliveredCount), totalParticipants=\(totalParticipants)")
+
         if deliveredCount >= totalParticipants {
+            print("🎨 MessageRow[\(message.id.prefix(8))]: status=DELIVERED")
             return .delivered
         } else if deliveredCount > 0 {
+            print("🎨 MessageRow[\(message.id.prefix(8))]: status=SENT (partial delivery)")
             return .sent
         }
 
+        print("🎨 MessageRow[\(message.id.prefix(8))]: status=\(message.messageStatus) (default)")
         return message.messageStatus
     }
 
@@ -259,19 +269,29 @@ struct MessageRow: View {
                 // Show profile pictures of users who read the message (excluding sender)
                 let readByOthers = message.readBy.filter { $0 != message.senderId }
                 if !readByOthers.isEmpty {
-                    HStack(spacing: -8) {
-                        ForEach(readByOthers.prefix(3), id: \.self) { userId in
-                            AvatarView(
-                                name: participantNames[userId] ?? "?",
-                                size: 14
-                            )
-                            .overlay(
-                                Circle()
-                                    .stroke(Color(uiColor: .systemBackground), lineWidth: 1.5)
-                            )
+                    // For 1-on-1 chats (2 participants), show "Read HH:MM"
+                    if totalParticipants == 2, let firstReaderId = readByOthers.first,
+                       let readTime = message.readAt[firstReaderId] {
+                        Text("Read \(formatTime(readTime))")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .transition(.opacity)
+                    } else {
+                        // For group chats (3+ participants), show profile pictures
+                        HStack(spacing: -8) {
+                            ForEach(readByOthers.prefix(3), id: \.self) { userId in
+                                AvatarView(
+                                    name: participantNames[userId] ?? "?",
+                                    size: 14
+                                )
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color(uiColor: .systemBackground), lineWidth: 1.5)
+                                )
+                            }
                         }
+                        .transition(.scale.combined(with: .opacity))
                     }
-                    .transition(.scale.combined(with: .opacity))
                 }
             } else if actualStatus == .delivered {
                 Text("Delivered")
@@ -288,6 +308,10 @@ struct MessageRow: View {
         .animation(.easeInOut(duration: 0.2), value: actualStatus)
         .animation(.easeInOut(duration: 0.2), value: message.deliveredToUsers.count)
         .animation(.easeInOut(duration: 0.2), value: message.readBy.count)
+    }
+
+    private func formatTime(_ date: Date) -> String {
+        date.formatted(date: .omitted, time: .shortened)
     }
 
     private func formatTimestamp(_ date: Date) -> String {

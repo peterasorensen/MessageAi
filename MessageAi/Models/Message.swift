@@ -34,6 +34,7 @@ final class Message {
     var status: String // MessageStatus raw value
     var timestamp: Date
     var readBy: [String] // Array of user IDs who have read this message
+    var readAt: [String: Date] // Dictionary of userId -> timestamp when they read the message
     var deliveredToUsers: [String] // Array of user IDs who have received message locally
     var isOptimistic: Bool // For optimistic UI updates
 
@@ -66,6 +67,7 @@ final class Message {
         status: MessageStatus = .sending,
         timestamp: Date = Date(),
         readBy: [String] = [],
+        readAt: [String: Date] = [:],
         deliveredToUsers: [String] = [],
         isOptimistic: Bool = false,
         detectedLanguage: String? = nil,
@@ -91,6 +93,7 @@ final class Message {
         self.status = status.rawValue
         self.timestamp = timestamp
         self.readBy = readBy
+        self.readAt = readAt
         self.deliveredToUsers = deliveredToUsers
         self.isOptimistic = isOptimistic
         self.detectedLanguage = detectedLanguage
@@ -192,6 +195,7 @@ struct MessageDTO: Codable {
     let status: String
     let timestamp: Date
     let readBy: [String]
+    let readAt: [String: Date]
     let deliveredToUsers: [String]
     let detectedLanguage: String?
     let translatedText: String?
@@ -212,6 +216,7 @@ struct MessageDTO: Codable {
         self.status = message.status
         self.timestamp = message.timestamp
         self.readBy = message.readBy
+        self.readAt = message.readAt
         self.deliveredToUsers = message.deliveredToUsers
         self.detectedLanguage = message.detectedLanguage
         self.translatedText = message.translatedText
@@ -234,6 +239,7 @@ struct MessageDTO: Codable {
             status: MessageStatus(rawValue: status) ?? .sent,
             timestamp: timestamp,
             readBy: readBy,
+            readAt: readAt,
             deliveredToUsers: deliveredToUsers,
             isOptimistic: false,
             detectedLanguage: detectedLanguage,
