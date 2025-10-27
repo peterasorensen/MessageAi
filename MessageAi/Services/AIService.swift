@@ -331,4 +331,66 @@ class AIService {
             throw error
         }
     }
+
+    // MARK: - Suggested Replies
+
+    func generateSuggestedReplies(conversationId: String, recentMessages: [Message]) async throws -> [String] {
+        guard let user = authService.currentUser,
+              let targetLanguage = user.targetLanguage else {
+            return []
+        }
+
+        // Build context from recent messages
+        var messages: [[String: String]] = []
+
+        let systemPrompt = """
+        Generate 1-3 short, natural suggested replies in \(targetLanguage) based on the conversation context, the user's language level, and the user's personality. \
+        The replies should be appropriate responses to the last message. \
+        Keep each reply very short (3-10 words maximum). \
+        Return ONLY a JSON array of strings, like: ["reply1", "reply2", "reply3"]. \
+        Use natural, conversational language appropriate for texting. \
+        Respond entirely in \(targetLanguage).
+        """
+        messages.append(["role": "system", "content": systemPrompt])
+
+        // Add recent conversation history
+        for msg in recentMessages.suffix(5) {
+            let role = msg.senderId == user.id ? "user" : "assistant"
+            messages.append(["role": role, "content": msg.content])
+        }
+
+        messages.append(["role": "user", "content": "Generate suggested replies as a JSON array."])
+
+        let data: [String: Any] = [
+            "messages": messages,
+            "targetLanguage": targetLanguage
+        ]
+
+        do {
+            let result = try await functions.httpsCallable("generateAIResponse").call(data)
+
+            if let response = result.data as? [String: Any],
+               let aiResponse = response["response"] as? String {
+                // Parse JSON array from response
+                if let jsonData = aiResponse.data(using: .utf8),
+                   let replies = try? JSONDecoder().decode([String].self, from: jsonData) {
+                    return Array(replies.prefix(3))
+                }
+                // Fallback: try to extract array-like strings
+                let cleaned = aiResponse.trimmingCharacters(in: .whitespacesAndNewlines)
+                if cleaned.hasPrefix("[") && cleaned.hasSuffix("]") {
+                    let inner = cleaned.dropFirst().dropLast()
+                    let parts = inner.split(separator: ",").map { part in
+                        part.trimmingCharacters(in: .whitespacesAndNewlines)
+                            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+                    }
+                    return Array(parts.prefix(3))
+                }
+            }
+            return []
+        } catch {
+            print("❌ Error generating suggested replies: \(error.localizedDescription)")
+            return []
+        }
+    }
 }

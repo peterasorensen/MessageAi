@@ -13,10 +13,13 @@ struct MessageInputBar: View {
     let onSend: () -> Void
     let onAudioSend: (URL, Double, [Float]) -> Void
     let onTypingChanged: (Bool) -> Void
+    let suggestedReplies: [String]
+    let onSuggestedReplyTap: (String) -> Void
 
     @State private var typingTimer: Timer?
     @State private var audioRecorder = AudioRecorderService()
     @State private var showRecordingUI = false
+    @State private var showSuggestedReplies = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,8 +29,26 @@ struct MessageInputBar: View {
                 // Recording UI
                 recordingView
             } else {
+                // Suggested replies
+                SuggestedRepliesView(
+                    suggestions: suggestedReplies,
+                    onSelect: handleSuggestedReply,
+                    isExpanded: showSuggestedReplies
+                )
+
                 // Normal input UI
                 HStack(alignment: .bottom, spacing: 12) {
+                    // Suggested replies button
+                    if !suggestedReplies.isEmpty {
+                        Button(action: toggleSuggestedReplies) {
+                            Image(systemName: showSuggestedReplies ? "lightbulb.fill" : "lightbulb")
+                                .font(.system(size: 24))
+                                .foregroundStyle(.blue)
+                                .frame(width: 32, height: 32)
+                        }
+                        .animation(.easeInOut(duration: 0.2), value: showSuggestedReplies)
+                    }
+
                     // Text input field
                     HStack(alignment: .bottom, spacing: 8) {
                         TextField("Message", text: $text, axis: .vertical)
@@ -169,6 +190,20 @@ struct MessageInputBar: View {
             onTypingChanged(false)
         }
     }
+
+    private func toggleSuggestedReplies() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            showSuggestedReplies.toggle()
+        }
+    }
+
+    private func handleSuggestedReply(_ reply: String) {
+        text = reply
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            showSuggestedReplies = false
+        }
+        onSuggestedReplyTap(reply)
+    }
 }
 
 #Preview {
@@ -186,7 +221,9 @@ struct MessageInputBar: View {
                     onAudioSend: { url, duration, waveform in
                         print("Audio: \(url), \(duration)s, \(waveform.count) samples")
                     },
-                    onTypingChanged: { isTyping in print("Typing: \(isTyping)") }
+                    onTypingChanged: { isTyping in print("Typing: \(isTyping)") },
+                    suggestedReplies: ["Hola!", "¿Cómo estás?", "Sí, me gusta"],
+                    onSuggestedReplyTap: { print("Selected: \($0)") }
                 )
             }
         }

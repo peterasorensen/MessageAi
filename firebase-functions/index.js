@@ -136,7 +136,7 @@ exports.analyzeMessage = functions.https.onCall(async (data, context) => {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini-2024-07-18',
+      model: 'gpt-4o-mini',
       messages: [
         {
           role: 'system',
@@ -290,7 +290,7 @@ exports.expandWordContext = functions.https.onCall(async (data, context) => {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini-2024-07-18',
+      model: 'gpt-4o-mini',
       messages: [
         {
           role: 'system',

@@ -24,6 +24,8 @@ struct ChatView: View {
     @State private var messagesOffset: CGFloat = 0
     @State private var showAllTimestamps = false
     @State private var wordTranslationState = WordTranslationState()
+    @State private var suggestedReplies: [String] = []
+    @State private var aiService: AIService?
     private let maxSwipeOffset: CGFloat = 60
 
     private var messages: [Message] {
@@ -107,7 +109,9 @@ struct ChatView: View {
                 isFocused: $isInputFocused,
                 onSend: sendMessage,
                 onAudioSend: sendAudioMessage,
-                onTypingChanged: handleTypingChanged
+                onTypingChanged: handleTypingChanged,
+                suggestedReplies: suggestedReplies,
+                onSuggestedReplyTap: { _ in }
             )
         }
         .environment(wordTranslationState)
@@ -187,6 +191,9 @@ struct ChatView: View {
             messageService.activeConversationId = conversation.id
             messageService.startListeningToMessages(conversationId: conversation.id)
 
+            // Initialize AI service
+            aiService = AIService(messageService: messageService, authService: authService)
+
             // Fetch other user's profile and listen for online status updates
             if let otherUserId = otherUserId {
                 Task {
@@ -198,6 +205,9 @@ struct ChatView: View {
             Task {
                 try? await messageService.markMessagesAsRead(conversationId: conversation.id, userId: currentUserId)
             }
+
+            // Generate initial suggested replies
+            generateSuggestedReplies()
         }
         .onChange(of: messages.count) { _, _ in
             // Mark messages as read when new messages arrive while viewing
@@ -206,6 +216,9 @@ struct ChatView: View {
                     try? await messageService.markMessagesAsRead(conversationId: conversation.id, userId: currentUserId)
                 }
             }
+
+            // Regenerate suggested replies when new messages arrive
+            generateSuggestedReplies()
         }
         .onDisappear {
             messageService.activeConversationId = nil
@@ -331,6 +344,24 @@ struct ChatView: View {
         await MainActor.run {
             userListener = authService.listenToUser(userId: userId) { user in
                 self.otherUser = user
+            }
+        }
+    }
+
+    private func generateSuggestedReplies() {
+        guard let aiService = aiService, !messages.isEmpty else { return }
+
+        Task {
+            do {
+                let replies = try await aiService.generateSuggestedReplies(
+                    conversationId: conversation.id,
+                    recentMessages: messages
+                )
+                await MainActor.run {
+                    suggestedReplies = replies
+                }
+            } catch {
+                print("Error generating suggested replies: \(error.localizedDescription)")
             }
         }
     }
