@@ -37,8 +37,20 @@ class AIService {
         }
 
         // Check if AI pal conversation already exists
-        if user.aiPalConversationId != nil {
-            print("ℹ️ AI pal conversation already exists: \(user.aiPalConversationId!)")
+        if let existingConversationId = user.aiPalConversationId {
+            print("ℹ️ AI pal conversation already exists: \(existingConversationId)")
+
+            // Update AI Pal name in conversation if persona changed
+            let newAIPalName = user.aiPalDisplayName
+            try await db.collection("conversations").document(existingConversationId).updateData([
+                "participantNames.\(AIService.AI_PAL_USER_ID)": newAIPalName
+            ])
+            print("✅ Updated AI Pal name to: \(newAIPalName)")
+
+            // Send a welcome message on settings update
+            print("📤 Sending updated settings welcome message...")
+            try await sendWelcomeMessage(conversationId: existingConversationId, persona: persona, targetLanguage: targetLanguage)
+            print("✅ Settings update welcome message sent!")
             return
         }
 
@@ -114,33 +126,17 @@ class AIService {
 
         print("✅ Welcome message generated: \(welcomeMessage)")
 
-        // Create and save the message
-        let messageId = UUID().uuidString
-        let timestamp = Date()
+        // Use MessageService.sendMessage to send AI Pal message the same way as regular messages
+        // This ensures translation analysis and all other features work correctly
+        try await messageService.sendMessage(
+            conversationId: conversationId,
+            content: welcomeMessage,
+            type: .text,
+            customSenderId: AIService.AI_PAL_USER_ID,
+            customSenderName: authService.currentUser?.aiPalDisplayName ?? "AI Pal"
+        )
 
-        let messageData: [String: Any] = [
-            "id": messageId,
-            "conversationId": conversationId,
-            "senderId": AIService.AI_PAL_USER_ID,
-            "senderName": authService.currentUser?.aiPalDisplayName ?? "AI Pal",
-            "content": welcomeMessage,
-            "type": "text",
-            "status": "sent",
-            "timestamp": Timestamp(date: timestamp),
-            "readBy": [],
-            "deliveredToUsers": []
-        ]
-
-        try await db.collection("conversations").document(conversationId)
-            .collection("messages").document(messageId).setData(messageData)
-
-        // Update conversation last message
-        try await db.collection("conversations").document(conversationId).updateData([
-            "lastMessage": welcomeMessage,
-            "lastMessageTimestamp": Timestamp(date: timestamp),
-            "lastMessageSenderId": AIService.AI_PAL_USER_ID,
-            "unreadCount.\(authService.currentUser?.id ?? "")": FieldValue.increment(Int64(1))
-        ])
+        print("✅ AI Pal message sent via MessageService")
     }
 
     // MARK: - AI Response Generation

@@ -198,7 +198,11 @@ class AuthService {
         // Initialize AI pal after onboarding if persona was set
         if aiPersonaType != nil {
             Task {
-                try? await aiService?.initializeAIPal()
+                do {
+                    try await aiService?.initializeAIPal()
+                } catch {
+                    print("❌ Error initializing AI Pal: \(error)")
+                }
             }
         }
     }

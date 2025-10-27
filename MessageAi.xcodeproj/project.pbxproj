@@ -32,7 +32,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		1891F41A2EA8813B0080BA8F /* MessageAi.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MessageAi.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1891F41A2EA8813B0080BA8F /* Lemurs.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Lemurs.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1891F42C2EA8813D0080BA8F /* MessageAiTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MessageAiTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1891F4362EA8813D0080BA8F /* MessageAiUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MessageAiUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -111,7 +111,7 @@
 		1891F41B2EA8813B0080BA8F /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				1891F41A2EA8813B0080BA8F /* MessageAi.app */,
+				1891F41A2EA8813B0080BA8F /* Lemurs.app */,
 				1891F42C2EA8813D0080BA8F /* MessageAiTests.xctest */,
 				1891F4362EA8813D0080BA8F /* MessageAiUITests.xctest */,
 			);
@@ -145,7 +145,7 @@
 				18FF922D2EAC3D5100A7DFF8 /* FirebaseFunctions */,
 			);
 			productName = MessageAi;
-			productReference = 1891F41A2EA8813B0080BA8F /* MessageAi.app */;
+			productReference = 1891F41A2EA8813B0080BA8F /* Lemurs.app */;
 			productType = "com.apple.product-type.application";
 		};
 		1891F42B2EA8813D0080BA8F /* MessageAiTests */ = {
@@ -435,6 +435,8 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = MessageAi/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Lemurs;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -446,7 +448,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = peter.sorensen.MessageAi;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = Lemurs;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -466,6 +468,8 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = MessageAi/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Lemurs;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -477,7 +481,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = peter.sorensen.MessageAi;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = Lemurs;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";

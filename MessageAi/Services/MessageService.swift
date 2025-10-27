@@ -75,10 +75,22 @@ class MessageService {
                 Task { @MainActor in
                     self.conversations = documents.compactMap { document in
                         if let dto = try? Firestore.Decoder().decode(ConversationDTO.self, from: document.data()) {
-                            // Filter out conversations deleted by current user
+                            // Check if conversation was deleted by current user
                             if dto.deletedBy.contains(userId) {
-                                print("   🗑️ Skipping deleted conversation: \(dto.id)")
-                                return nil
+                                // If there are new unread messages, "undelete" the conversation by showing it
+                                let unreadCount = dto.unreadCount[userId] ?? 0
+                                if unreadCount > 0 {
+                                    print("   🔄 Restoring deleted conversation \(dto.id) - has \(unreadCount) new messages")
+                                    // Remove user from deletedBy array in Firestore
+                                    Task {
+                                        try? await self.db.collection("conversations").document(dto.id).updateData([
+                                            "deletedBy": FieldValue.arrayRemove([userId])
+                                        ])
+                                    }
+                                } else {
+                                    print("   🗑️ Skipping deleted conversation: \(dto.id)")
+                                    return nil
+                                }
                             }
 
                             let conversation = dto.toConversation(currentUserId: userId)
@@ -349,10 +361,13 @@ class MessageService {
                                 print("      Old readAt: \(self.messages[conversationId]![index].readAt)")
                                 print("      New readAt: \(message.readAt)")
 
+                                let wasOptimistic = self.messages[conversationId]![index].isOptimistic
+
                                 self.messages[conversationId]![index].deliveredToUsers = message.deliveredToUsers
                                 self.messages[conversationId]![index].readBy = message.readBy
                                 self.messages[conversationId]![index].readAt = message.readAt
                                 self.messages[conversationId]![index].status = message.status
+                                self.messages[conversationId]![index].isOptimistic = false
 
                                 // Update transcription fields for audio messages
                                 self.messages[conversationId]![index].audioTranscription = message.audioTranscription
@@ -361,6 +376,17 @@ class MessageService {
                                 self.messages[conversationId]![index].isTranscriptionReady = message.isTranscriptionReady
 
                                 print("   ✅ LISTENER: Message updated successfully")
+
+                                // If this was an optimistic message that just became real, trigger analysis
+                                if wasOptimistic && message.senderId != currentUserId && message.detectedLanguage == nil {
+                                    print("   🔍 Triggering analysis for optimistic message that became real")
+                                    Task {
+                                        await self.analyzeAndTranslateMessage(
+                                            conversationId: conversationId,
+                                            messageId: message.id
+                                        )
+                                    }
+                                }
                             } else {
                                 // New message - add it
                                 self.messages[conversationId]!.append(message)
@@ -398,10 +424,22 @@ class MessageService {
             }
     }
 
-    func sendMessage(conversationId: String, content: String, type: MessageType = .text) async throws {
-        guard let currentUserId = authService.currentUser?.id,
-              let currentUserName = authService.currentUser?.displayName else {
-            throw NSError(domain: "MessageService", code: -1, userInfo: [NSLocalizedDescriptionKey: "No authenticated user"])
+    func sendMessage(conversationId: String, content: String, type: MessageType = .text, customSenderId: String? = nil, customSenderName: String? = nil) async throws {
+        let senderId: String
+        let senderName: String
+
+        if let customSenderId = customSenderId, let customSenderName = customSenderName {
+            // Use custom sender (e.g., AI Pal)
+            senderId = customSenderId
+            senderName = customSenderName
+        } else {
+            // Use current user
+            guard let currentUserId = authService.currentUser?.id,
+                  let currentUserName = authService.currentUser?.displayName else {
+                throw NSError(domain: "MessageService", code: -1, userInfo: [NSLocalizedDescriptionKey: "No authenticated user"])
+            }
+            senderId = currentUserId
+            senderName = currentUserName
         }
 
         print("📤 Sending message to conversation: \(conversationId)")
@@ -409,12 +447,12 @@ class MessageService {
         // Create optimistic message
         let optimisticMessage = Message(
             conversationId: conversationId,
-            senderId: currentUserId,
-            senderName: currentUserName,
+            senderId: senderId,
+            senderName: senderName,
             content: content,
             type: type,
             status: .sending,
-            deliveredToUsers: [currentUserId], // Sender has it immediately
+            deliveredToUsers: [senderId], // Sender has it immediately
             isOptimistic: true
         )
 
@@ -433,7 +471,7 @@ class MessageService {
             let messageDTO = MessageDTO(from: optimisticMessage)
             var data = try Firestore.Encoder().encode(messageDTO)
             data["status"] = MessageStatus.sent.rawValue // Update status to sent
-            data["deliveredToUsers"] = [currentUserId] // Sender has it
+            data["deliveredToUsers"] = [senderId] // Sender has it
 
             try await db.collection("conversations")
                 .document(conversationId)
@@ -448,12 +486,12 @@ class MessageService {
             var updates: [String: Any] = [
                 "lastMessage": content,
                 "lastMessageTimestamp": Timestamp(date: optimisticMessage.timestamp),
-                "lastMessageSenderId": currentUserId
+                "lastMessageSenderId": senderId
             ]
 
             // Increment unread count for all participants except sender
             if let participantIds = conversation?.participantIds {
-                for participantId in participantIds where participantId != currentUserId {
+                for participantId in participantIds where participantId != senderId {
                     updates["unreadCount.\(participantId)"] = FieldValue.increment(Int64(1))
                 }
             }
@@ -465,12 +503,12 @@ class MessageService {
             print("   ✅ Conversation updated with last message")
 
             // Send push notification to other participants via Cloud Function
-            let recipientIds = conversation?.participantIds.filter { $0 != currentUserId } ?? []
+            let recipientIds = conversation?.participantIds.filter { $0 != senderId } ?? []
             if !recipientIds.isEmpty {
                 // Call the Cloud Function to send notifications
                 let notificationData: [String: Any] = [
                     "recipientIds": recipientIds,
-                    "title": currentUserName,
+                    "title": senderName,
                     "body": content,
                     "conversationId": conversationId,
                     "messageId": optimisticMessage.id
@@ -702,14 +740,16 @@ class MessageService {
             return
         }
 
-        // Only delete if all participants have BOTH delivered AND read the message
+        // Only delete if all REAL participants have BOTH delivered AND read the message
+        // Exclude system users like AI Pal who never "read" messages
+        let realParticipants = participantIds.filter { $0 != "ai-pal-system" }
         let deliveredSet = Set(deliveredToUsers)
         let readBySet = Set(readBy)
-        let participantSet = Set(participantIds)
+        let participantSet = Set(realParticipants)
 
-        if deliveredSet == participantSet && readBySet == participantSet {
+        if deliveredSet.isSuperset(of: participantSet) && readBySet.isSuperset(of: participantSet) {
             try await messageRef.delete()
-            print("   🗑️ Deleted message \(messageId) from Firestore (all users delivered AND read)")
+            print("   🗑️ Deleted message \(messageId) from Firestore (all real users delivered AND read)")
         }
     }
 
@@ -886,8 +926,7 @@ class MessageService {
         try? modelContext.save()
     }
 
-    @MainActor
-    private func saveToLocal(message: Message) {
+    func saveToLocal(message: Message) {
         // Check if message already exists in SwiftData
         let messageId = message.id
         let predicate = #Predicate<Message> { existingMessage in

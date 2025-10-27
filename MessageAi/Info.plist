@@ -7,6 +7,6 @@
 		<string>remote-notification</string>
 	</array>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>MessageAi needs access to your microphone to record audio messages.</string>
+	<string>Lemurs needs access to your microphone to record audio messages.</string>
 </dict>
 </plist>
