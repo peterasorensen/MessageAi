@@ -30,14 +30,28 @@ struct MessageAiApp: App {
         // Use persistent storage for offline message access
         let modelConfiguration = ModelConfiguration(
             schema: schema,
-            isStoredInMemoryOnly: false
+            isStoredInMemoryOnly: false,
+            allowsSave: true
         )
 
         do {
             return try ModelContainer(for: schema, configurations: [modelConfiguration])
         } catch {
             print("⚠️ ModelContainer creation failed: \(error)")
-            fatalError("Could not create ModelContainer: \(error)")
+            print("⚠️ This may be due to schema changes. Attempting to delete old store...")
+
+            // Try to delete the existing store and create a fresh one
+            let storeURL = modelConfiguration.url
+            try? FileManager.default.removeItem(at: storeURL)
+            print("🗑️ Deleted old store at: \(storeURL)")
+
+            // Try again with fresh store
+            do {
+                return try ModelContainer(for: schema, configurations: [modelConfiguration])
+            } catch {
+                print("❌ Still failed after deleting store: \(error)")
+                fatalError("Could not create ModelContainer: \(error)")
+            }
         }
     }()
 

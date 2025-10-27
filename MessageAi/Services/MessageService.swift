@@ -508,6 +508,139 @@ class MessageService {
         }
     }
 
+    func sendAudioMessage(conversationId: String, audioURL: URL, duration: Double, waveform: [Float]) async throws {
+        guard let currentUserId = authService.currentUser?.id,
+              let currentUserName = authService.currentUser?.displayName else {
+            throw NSError(domain: "MessageService", code: -1, userInfo: [NSLocalizedDescriptionKey: "No authenticated user"])
+        }
+
+        print("🎤 Sending audio message to conversation: \(conversationId)")
+
+        // Read audio file as base64
+        guard let audioData = try? Data(contentsOf: audioURL),
+              !audioData.isEmpty else {
+            throw NSError(domain: "MessageService", code: -2, userInfo: [NSLocalizedDescriptionKey: "Failed to read audio file"])
+        }
+
+        let base64Audio = audioData.base64EncodedString()
+        print("   📊 Audio size: \(audioData.count) bytes")
+
+        // Encode waveform data
+        let waveformData = try? JSONEncoder().encode(waveform)
+        let waveformJSON: String? = waveformData.flatMap { String(data: $0, encoding: .utf8) }
+
+        // Create optimistic message
+        let optimisticMessage = Message(
+            conversationId: conversationId,
+            senderId: currentUserId,
+            senderName: currentUserName,
+            content: "", // No text content for audio messages
+            type: .audio,
+            status: .sending,
+            deliveredToUsers: [currentUserId],
+            isOptimistic: true,
+            audioFileURL: audioURL.path,
+            audioDuration: duration,
+            audioWaveformData: waveformJSON,
+            isTranscriptionReady: false
+        )
+
+        // Show optimistic message immediately
+        await MainActor.run {
+            if self.messages[conversationId] == nil {
+                self.messages[conversationId] = []
+            }
+            self.messages[conversationId]?.append(optimisticMessage)
+            self.saveToLocal(message: optimisticMessage)
+            print("   ✅ Added optimistic audio message locally")
+        }
+
+        do {
+            // Send to Firestore
+            let messageDTO = MessageDTO(from: optimisticMessage)
+            var data = try Firestore.Encoder().encode(messageDTO)
+            data["status"] = MessageStatus.sent.rawValue
+            data["deliveredToUsers"] = [currentUserId]
+
+            try await db.collection("conversations")
+                .document(conversationId)
+                .collection("messages")
+                .document(optimisticMessage.id)
+                .setData(data)
+
+            print("   ✅ Audio message saved to Firestore: \(optimisticMessage.id)")
+
+            // Update conversation's last message
+            let conversation = conversations.first(where: { $0.id == conversationId })
+            var updates: [String: Any] = [
+                "lastMessage": "🎤 Audio message",
+                "lastMessageTimestamp": Timestamp(date: optimisticMessage.timestamp),
+                "lastMessageSenderId": currentUserId
+            ]
+
+            // Increment unread count for all participants except sender
+            if let participantIds = conversation?.participantIds {
+                for participantId in participantIds where participantId != currentUserId {
+                    updates["unreadCount.\(participantId)"] = FieldValue.increment(Int64(1))
+                }
+            }
+
+            try await db.collection("conversations")
+                .document(conversationId)
+                .updateData(updates)
+
+            // Send push notification
+            let recipientIds = conversation?.participantIds.filter { $0 != currentUserId } ?? []
+            if !recipientIds.isEmpty {
+                let notificationData: [String: Any] = [
+                    "recipientIds": recipientIds,
+                    "title": currentUserName,
+                    "body": "🎤 Audio message",
+                    "conversationId": conversationId,
+                    "messageId": optimisticMessage.id
+                ]
+
+                Task {
+                    do {
+                        _ = try await functions.httpsCallable("sendNotificationHTTP").call(notificationData)
+                        print("   ✅ Push notifications sent")
+                    } catch {
+                        print("   ⚠️ Failed to send push notification: \(error.localizedDescription)")
+                    }
+                }
+            }
+
+            // Trigger transcription via Cloud Function
+            let targetLanguage = authService.currentUser?.targetLanguage ?? "en"
+            let transcriptionData: [String: Any] = [
+                "audioData": base64Audio,
+                "messageId": optimisticMessage.id,
+                "conversationId": conversationId,
+                "targetLanguage": targetLanguage
+            ]
+
+            Task {
+                do {
+                    _ = try await functions.httpsCallable("transcribeAudio").call(transcriptionData)
+                    print("   ✅ Transcription triggered")
+                } catch {
+                    print("   ⚠️ Failed to trigger transcription: \(error.localizedDescription)")
+                }
+            }
+
+        } catch {
+            print("   ❌ Failed to send audio message: \(error.localizedDescription)")
+
+            // Mark message as failed
+            await MainActor.run {
+                if let index = self.messages[conversationId]?.firstIndex(where: { $0.id == optimisticMessage.id }) {
+                    self.messages[conversationId]?[index].status = MessageStatus.failed.rawValue
+                }
+            }
+            throw error
+        }
+    }
+
     // MARK: - Delivery Tracking & Cleanup
 
     func markMessageDelivered(conversationId: String, messageId: String, userId: String, participantIds: [String]) async throws {

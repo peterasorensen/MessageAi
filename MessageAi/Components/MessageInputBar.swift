@@ -11,45 +11,99 @@ struct MessageInputBar: View {
     @Binding var text: String
     @FocusState.Binding var isFocused: Bool
     let onSend: () -> Void
+    let onAudioSend: (URL, Double, [Float]) -> Void
     let onTypingChanged: (Bool) -> Void
 
     @State private var typingTimer: Timer?
+    @State private var audioRecorder = AudioRecorderService()
+    @State private var showRecordingUI = false
 
     var body: some View {
         VStack(spacing: 0) {
             Divider()
 
-            HStack(alignment: .bottom, spacing: 12) {
-                // Text input field
-                HStack(alignment: .bottom, spacing: 8) {
-                    TextField("Message", text: $text, axis: .vertical)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 16))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .lineLimit(1...6)
-                        .focused($isFocused)
-                        .onChange(of: text) { oldValue, newValue in
-                            handleTyping(oldValue: oldValue, newValue: newValue)
-                        }
-                        .accessibilityIdentifier("messageInputField")
-                }
-                .background(Color(uiColor: .systemGray6))
-                .cornerRadius(20)
+            if showRecordingUI {
+                // Recording UI
+                recordingView
+            } else {
+                // Normal input UI
+                HStack(alignment: .bottom, spacing: 12) {
+                    // Text input field
+                    HStack(alignment: .bottom, spacing: 8) {
+                        TextField("Message", text: $text, axis: .vertical)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 16))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .lineLimit(1...6)
+                            .focused($isFocused)
+                            .onChange(of: text) { oldValue, newValue in
+                                handleTyping(oldValue: oldValue, newValue: newValue)
+                            }
+                            .accessibilityIdentifier("messageInputField")
+                    }
+                    .background(Color(uiColor: .systemGray6))
+                    .cornerRadius(20)
 
-                // Send button
-                Button(action: handleSend) {
-                    Image(systemName: text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "mic.fill" : "arrow.up.circle.fill")
-                        .font(.system(size: 32))
-                        .foregroundStyle(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .gray : .blue)
+                    // Send/Mic button
+                    Button(action: handleSendOrRecord) {
+                        Image(systemName: text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "mic.fill" : "arrow.up.circle.fill")
+                            .font(.system(size: 32))
+                            .foregroundStyle(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .blue : .blue)
+                    }
+                    .animation(.easeInOut(duration: 0.2), value: text.isEmpty)
+                    .accessibilityIdentifier("sendButton")
                 }
-                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .animation(.easeInOut(duration: 0.2), value: text.isEmpty)
-                .accessibilityIdentifier("sendButton")
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color(uiColor: .systemBackground))
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color(uiColor: .systemBackground))
+        }
+    }
+
+    private var recordingView: some View {
+        VStack(spacing: 12) {
+            // Waveform visualization
+            RecordingWaveformView(samples: audioRecorder.waveformSamples)
+                .frame(height: 50)
+                .padding(.horizontal, 16)
+
+            HStack(spacing: 20) {
+                // Cancel button
+                Button(action: cancelRecording) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 40))
+                        .foregroundStyle(.red)
+                }
+
+                Spacer()
+
+                // Duration
+                Text(audioRecorder.formatDuration(audioRecorder.recordingDuration))
+                    .font(.system(size: 24, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.primary)
+
+                Spacer()
+
+                // Stop and send button
+                Button(action: stopAndSendRecording) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 40))
+                        .foregroundStyle(.green)
+                }
+            }
+            .padding(.horizontal, 30)
+        }
+        .padding(.vertical, 16)
+        .background(Color(uiColor: .systemBackground))
+    }
+
+    private func handleSendOrRecord() {
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedText.isEmpty {
+            handleSend()
+        } else {
+            startRecording()
         }
     }
 
@@ -63,6 +117,39 @@ struct MessageInputBar: View {
         // Notify typing stopped
         typingTimer?.invalidate()
         onTypingChanged(false)
+    }
+
+    private func startRecording() {
+        Task {
+            do {
+                _ = try await audioRecorder.startRecording()
+                await MainActor.run {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        showRecordingUI = true
+                    }
+                }
+            } catch {
+                print("Failed to start recording: \(error)")
+            }
+        }
+    }
+
+    private func stopAndSendRecording() {
+        guard let recording = audioRecorder.stopRecording() else { return }
+
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            showRecordingUI = false
+        }
+
+        onAudioSend(recording.url, recording.duration, recording.waveform)
+    }
+
+    private func cancelRecording() {
+        audioRecorder.cancelRecording()
+
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            showRecordingUI = false
+        }
     }
 
     private func handleTyping(oldValue: String, newValue: String) {
@@ -96,6 +183,9 @@ struct MessageInputBar: View {
                     text: $text,
                     isFocused: $isFocused,
                     onSend: { print("Send: \(text)") },
+                    onAudioSend: { url, duration, waveform in
+                        print("Audio: \(url), \(duration)s, \(waveform.count) samples")
+                    },
                     onTypingChanged: { isTyping in print("Typing: \(isTyping)") }
                 )
             }

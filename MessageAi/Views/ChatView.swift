@@ -106,6 +106,7 @@ struct ChatView: View {
                 text: $messageText,
                 isFocused: $isInputFocused,
                 onSend: sendMessage,
+                onAudioSend: sendAudioMessage,
                 onTypingChanged: handleTypingChanged
             )
         }
@@ -272,6 +273,28 @@ struct ChatView: View {
                 scrollToBottom(animated: true)
             } catch {
                 print("Error sending message: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func sendAudioMessage(audioURL: URL, duration: Double, waveform: [Float]) {
+        Task {
+            do {
+                try await messageService.sendAudioMessage(
+                    conversationId: conversation.id,
+                    audioURL: audioURL,
+                    duration: duration,
+                    waveform: waveform
+                )
+
+                // Add haptic feedback
+                let impact = UIImpactFeedbackGenerator(style: .medium)
+                impact.impactOccurred()
+
+                // Scroll to bottom
+                scrollToBottom(animated: true)
+            } catch {
+                print("Error sending audio message: \(error.localizedDescription)")
             }
         }
     }

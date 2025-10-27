@@ -20,6 +20,7 @@ enum MessageType: String, Codable {
     case text
     case image
     case system
+    case audio
 }
 
 @Model
@@ -46,6 +47,15 @@ final class Message {
     var cachedVoice: String? // Which voice was used for cached audio (for cache invalidation)
     var wordAudioCacheJSON: String? // JSON dictionary mapping words to base64 audio
 
+    // Audio message properties (for MessageType.audio)
+    var audioFileURL: String? // Local file path to recorded audio
+    var audioDuration: Double? // Duration in seconds
+    var audioTranscription: String? // Transcribed text from audio
+    var audioTranscriptionLanguage: String? // Detected language of transcription
+    var audioTranscriptionJSON: String? // Word translations for transcription text
+    var audioWaveformData: String? // JSON-encoded waveform sample array for visualization
+    var isTranscriptionReady: Bool // Whether transcription has completed
+
     init(
         id: String = UUID().uuidString,
         conversationId: String,
@@ -63,7 +73,14 @@ final class Message {
         wordTranslationsJSON: String? = nil,
         audioDataBase64: String? = nil,
         cachedVoice: String? = nil,
-        wordAudioCacheJSON: String? = nil
+        wordAudioCacheJSON: String? = nil,
+        audioFileURL: String? = nil,
+        audioDuration: Double? = nil,
+        audioTranscription: String? = nil,
+        audioTranscriptionLanguage: String? = nil,
+        audioTranscriptionJSON: String? = nil,
+        audioWaveformData: String? = nil,
+        isTranscriptionReady: Bool = false
     ) {
         self.id = id
         self.conversationId = conversationId
@@ -82,6 +99,13 @@ final class Message {
         self.audioDataBase64 = audioDataBase64
         self.cachedVoice = cachedVoice
         self.wordAudioCacheJSON = wordAudioCacheJSON
+        self.audioFileURL = audioFileURL
+        self.audioDuration = audioDuration
+        self.audioTranscription = audioTranscription
+        self.audioTranscriptionLanguage = audioTranscriptionLanguage
+        self.audioTranscriptionJSON = audioTranscriptionJSON
+        self.audioWaveformData = audioWaveformData
+        self.isTranscriptionReady = isTranscriptionReady
     }
 
     var messageType: MessageType {
@@ -123,6 +147,38 @@ final class Message {
             self.wordAudioCacheJSON = json
         }
     }
+
+    var audioTranscriptionWordTranslations: [WordTranslation] {
+        guard let json = audioTranscriptionJSON,
+              let data = json.data(using: .utf8) else {
+            return []
+        }
+        return (try? JSONDecoder().decode([WordTranslation].self, from: data)) ?? []
+    }
+
+    func setAudioTranscriptionWordTranslations(_ translations: [WordTranslation]) {
+        let encoder = JSONEncoder()
+        if let data = try? encoder.encode(translations),
+           let json = String(data: data, encoding: .utf8) {
+            self.audioTranscriptionJSON = json
+        }
+    }
+
+    var waveformSamples: [Float] {
+        guard let json = audioWaveformData,
+              let data = json.data(using: .utf8) else {
+            return []
+        }
+        return (try? JSONDecoder().decode([Float].self, from: data)) ?? []
+    }
+
+    func setWaveformSamples(_ samples: [Float]) {
+        let encoder = JSONEncoder()
+        if let data = try? encoder.encode(samples),
+           let json = String(data: data, encoding: .utf8) {
+            self.audioWaveformData = json
+        }
+    }
 }
 
 // Firestore DTO for sync
@@ -140,6 +196,11 @@ struct MessageDTO: Codable {
     let detectedLanguage: String?
     let translatedText: String?
     let wordTranslationsJSON: String?
+    let audioDuration: Double?
+    let audioTranscription: String?
+    let audioTranscriptionLanguage: String?
+    let audioTranscriptionJSON: String?
+    let isTranscriptionReady: Bool?
 
     init(from message: Message) {
         self.id = message.id
@@ -155,6 +216,11 @@ struct MessageDTO: Codable {
         self.detectedLanguage = message.detectedLanguage
         self.translatedText = message.translatedText
         self.wordTranslationsJSON = message.wordTranslationsJSON
+        self.audioDuration = message.audioDuration
+        self.audioTranscription = message.audioTranscription
+        self.audioTranscriptionLanguage = message.audioTranscriptionLanguage
+        self.audioTranscriptionJSON = message.audioTranscriptionJSON
+        self.isTranscriptionReady = message.isTranscriptionReady
     }
 
     func toMessage() -> Message {
@@ -172,7 +238,12 @@ struct MessageDTO: Codable {
             isOptimistic: false,
             detectedLanguage: detectedLanguage,
             translatedText: translatedText,
-            wordTranslationsJSON: wordTranslationsJSON
+            wordTranslationsJSON: wordTranslationsJSON,
+            audioDuration: audioDuration,
+            audioTranscription: audioTranscription,
+            audioTranscriptionLanguage: audioTranscriptionLanguage,
+            audioTranscriptionJSON: audioTranscriptionJSON,
+            isTranscriptionReady: isTranscriptionReady ?? false
         )
     }
 }

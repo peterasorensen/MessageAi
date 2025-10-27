@@ -136,26 +136,32 @@ struct MessageRow: View {
 
     private var messageBubbleContent: some View {
         ZStack {
-                        VStack(alignment: isFromCurrentUser ? .trailing : .leading, spacing: 4) {
-                            // Message bubble - doesn't change size
-                            TappableMessageText(
-                                text: textForWordTapping,
-                                displayText: displayedText,
-                                originalText: hasTranslation ? message.content : nil,
-                                wordTranslations: message.wordTranslations,
-                                detectedLanguage: message.detectedLanguage,
-                                targetLanguage: authService.currentUser?.targetLanguage,
-                                fluentLanguage: authService.currentUser?.fluentLanguage,
-                                isFromCurrentUser: isFromCurrentUser,
-                                showOriginal: showOriginal,
-                                message: message
-                            )
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .background(messageBubbleBackground)
-                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                        }
-                    }
+            VStack(alignment: isFromCurrentUser ? .trailing : .leading, spacing: 4) {
+                // Check if this is an audio message
+                if message.messageType == .audio {
+                    // Audio message bubble
+                    AudioMessageBubble(message: message)
+                } else {
+                    // Regular text message bubble
+                    TappableMessageText(
+                        text: textForWordTapping,
+                        displayText: displayedText,
+                        originalText: hasTranslation ? message.content : nil,
+                        wordTranslations: message.wordTranslations,
+                        detectedLanguage: message.detectedLanguage,
+                        targetLanguage: authService.currentUser?.targetLanguage,
+                        fluentLanguage: authService.currentUser?.fluentLanguage,
+                        isFromCurrentUser: isFromCurrentUser,
+                        showOriginal: showOriginal,
+                        message: message
+                    )
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(messageBubbleBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                }
+            }
+        }
     }
 
     private var ttsPlayButton: some View {

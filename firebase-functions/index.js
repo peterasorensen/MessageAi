@@ -674,3 +674,126 @@ exports.generateTTS = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('internal', error.message);
   }
 });
+
+/**
+ * Transcribe Audio - Convert audio to text using OpenAI gpt-4o-mini-transcribe
+ * Accepts base64-encoded audio data and returns transcription with detected language
+ */
+exports.transcribeAudio = functions.https.onCall(async (data, context) => {
+  // Check authentication
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be authenticated');
+  }
+
+  const { audioData, messageId, conversationId, targetLanguage } = data;
+
+  if (!audioData) {
+    throw new functions.https.HttpsError('invalid-argument', 'audioData (base64) is required');
+  }
+
+  if (!messageId || !conversationId) {
+    throw new functions.https.HttpsError('invalid-argument', 'messageId and conversationId are required');
+  }
+
+  try {
+    console.log(`🎧 Transcribing audio for message ${messageId} (${audioData.length} base64 chars)`);
+
+    // Convert base64 to buffer
+    const buffer = Buffer.from(audioData, 'base64');
+
+    // Create a temporary file-like object for OpenAI API
+    const audioFile = new File([buffer], 'audio.m4a', { type: 'audio/m4a' });
+
+    // Transcribe using Whisper via OpenAI
+    const transcription = await openai.audio.transcriptions.create({
+      file: audioFile,
+      model: 'whisper-1',
+      response_format: 'verbose_json',
+      language: undefined, // Auto-detect
+    });
+
+    const transcribedText = transcription.text;
+    const detectedLanguage = transcription.language || 'en';
+
+    console.log(`✅ Transcription complete: "${transcribedText.substring(0, 50)}..." (language: ${detectedLanguage})`);
+
+    // Now analyze the transcription for word-by-word translations
+    let wordTranslationsJSON = null;
+    if (targetLanguage && targetLanguage !== detectedLanguage) {
+      console.log(`🌍 Analyzing transcription for translations (${detectedLanguage} → ${targetLanguage})`);
+
+      const analysisResponse = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: `You are a language learning assistant. Translate the following text from ${detectedLanguage} to ${targetLanguage} and provide word-by-word translations with parts of speech.
+
+Return a JSON object with this structure:
+{
+  "translatedText": "full translation",
+  "wordTranslations": [
+    {
+      "originalWord": "word",
+      "translation": "translation",
+      "partOfSpeech": "noun/verb/adj/etc",
+      "startIndex": 0,
+      "endIndex": 4,
+      "context": "brief usage context"
+    }
+  ]
+}`
+          },
+          {
+            role: 'user',
+            content: transcribedText
+          }
+        ],
+        response_format: { type: 'json_object' }
+      });
+
+      const analysis = JSON.parse(analysisResponse.choices[0].message.content);
+      wordTranslationsJSON = JSON.stringify(analysis.wordTranslations);
+
+      console.log(`✅ Analysis complete with ${analysis.wordTranslations.length} word translations`);
+
+      // Update Firestore with transcription and translations
+      await admin.firestore()
+        .collection('conversations')
+        .doc(conversationId)
+        .collection('messages')
+        .doc(messageId)
+        .update({
+          audioTranscription: transcribedText,
+          audioTranscriptionLanguage: detectedLanguage,
+          audioTranscriptionJSON: wordTranslationsJSON,
+          translatedText: analysis.translatedText,
+          detectedLanguage: detectedLanguage,
+          isTranscriptionReady: true,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+    } else {
+      // No translation needed, just update with transcription
+      await admin.firestore()
+        .collection('conversations')
+        .doc(conversationId)
+        .collection('messages')
+        .doc(messageId)
+        .update({
+          audioTranscription: transcribedText,
+          audioTranscriptionLanguage: detectedLanguage,
+          isTranscriptionReady: true,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+    }
+
+    return {
+      transcription: transcribedText,
+      detectedLanguage: detectedLanguage,
+      wordTranslationsJSON: wordTranslationsJSON,
+    };
+  } catch (error) {
+    console.error('❌ Error transcribing audio:', error);
+    throw new functions.https.HttpsError('internal', error.message);
+  }
+});
