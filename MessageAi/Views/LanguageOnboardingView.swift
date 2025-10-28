@@ -76,7 +76,7 @@ struct LanguageOnboardingView: View {
             Text("🌍")
                 .font(.system(size: 80))
 
-            Text("Welcome to MessageAi Translation")
+            Text("Welcome to Lemurs Translation")
                 .font(.title)
                 .fontWeight(.bold)
                 .multilineTextAlignment(.center)
